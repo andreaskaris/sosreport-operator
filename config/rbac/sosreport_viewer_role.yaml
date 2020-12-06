@@ -1,0 +1,20 @@
+# permissions for end users to view sosreports.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sosreport-viewer-role
+rules:
+- apiGroups:
+  - support.openshift.io
+  resources:
+  - sosreports
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - support.openshift.io
+  resources:
+  - sosreports/status
+  verbs:
+  - get

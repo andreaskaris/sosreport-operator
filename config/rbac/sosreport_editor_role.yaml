@@ -1,0 +1,24 @@
+# permissions for end users to edit sosreports.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sosreport-editor-role
+rules:
+- apiGroups:
+  - support.openshift.io
+  resources:
+  - sosreports
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - support.openshift.io
+  resources:
+  - sosreports/status
+  verbs:
+  - get
