@@ -1,0 +1,1 @@
+# sosreport-operator
