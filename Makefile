@@ -69,13 +69,37 @@ vet:
 generate: controller-gen
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
-# Build the docker image
+# Build the docker image with docker
 docker-build: test
 	docker build . -t ${IMG}
 
 # Push the docker image
 docker-push:
 	docker push ${IMG}
+
+# Build the docker image with buildah
+podman-build: test
+	buildah bud -t ${IMG} .
+
+# Push the docker image
+podman-push:
+	podman push ${IMG}
+
+# Build the docker image with buildah
+podman-build-centos-sosreport:
+	cd containers/sosreport-centos && buildah bud -t ${IMG} .
+
+# Push the docker image
+podman-push-centos-sosreport:
+	podman push ${IMG}
+
+deploy-examples:
+	kubectl apply -f ./config/samples/sosreport-config-configmap.yaml && \
+	kubectl apply -f ./config/samples/support_v1alpha1_sosreport.yaml 
+
+undeploy-examples:
+	kubectl delete -f ./config/samples/sosreport-config-configmap.yaml && \
+	kubectl delete -f ./config/samples/support_v1alpha1_sosreport.yaml 
 
 # find or download controller-gen
 # download controller-gen if necessary

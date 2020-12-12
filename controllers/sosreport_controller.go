@@ -24,8 +24,7 @@ import (
 
 	"context"
 	"fmt"
-	"math/rand"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -41,6 +40,12 @@ import (
 	supportv1alpha1 "github.com/andreaskaris/sosreport-operator/api/v1alpha1"
 )
 
+const (
+	CONFIG_MAP_NAME           = "sosreport-configuration"
+	DEFAULT_IMAGE_NAME        = "alpine"
+	DEFAULT_SOSREPORT_COMMAND = "sleep 60"
+)
+
 // SosreportReconciler reconciles a Sosreport object
 type SosreportReconciler struct {
 	client.Client
@@ -49,7 +54,9 @@ type SosreportReconciler struct {
 	recorder record.EventRecorder
 	// the runlist takes care of race conditions due to caching delay
 	// a sosreport on the runlist will not be run again
-	runlist map[types.UID]struct{}
+	runlist          map[types.UID]struct{}
+	imageName        string // name of the soreport job's image
+	sosreportCommand string // command to run for the sosreport image
 }
 
 var log logr.Logger
@@ -97,6 +104,10 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			r.runlist = make(map[types.UID]struct{})
 		}
 		r.runlist[sosreport.UID] = struct{}{}
+
+		// before we run this, read some configuration from configmap
+		r.updateSosreportImageNameAndCommand(sosreport, req)
+
 		sosreport.Status.InProgress, err = r.runSosreportJobs(sosreport)
 		if err != nil {
 			log.Error(err, "unable to run sosreport jobs")
@@ -121,12 +132,44 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 // trigger reconcile loop whenever the CRD is updated or associated
 func (r *SosreportReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// record events for Sosreport CRD
 	r.recorder = mgr.GetEventRecorderFor("Sosreport")
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&supportv1alpha1.Sosreport{}).
 		Owns(&batchv1.Job{}).
 		Complete(r)
+}
+
+func (r *SosreportReconciler) updateSosreportImageNameAndCommand(s *supportv1alpha1.Sosreport, req ctrl.Request) {
+	sosreportImage := DEFAULT_IMAGE_NAME
+	sosreportCommand := DEFAULT_SOSREPORT_COMMAND
+	cm, err := r.getSosreportConfigMap(s, req)
+	if err == nil {
+		sosreportImageCm, ok := cm.Data["sosreport-image"]
+		if ok {
+			sosreportImage = sosreportImageCm
+		}
+		sosreportCommandCm, ok := cm.Data["sosreport-command"]
+		if ok {
+			sosreportCommand = sosreportCommandCm
+		}
+	}
+	log.Info("Using sosreport-image", "sosreport-image", sosreportImage)
+	r.imageName = sosreportImage
+	log.Info("Using sosreport-command", "sosreport-command", sosreportCommand)
+	r.sosreportCommand = sosreportCommand
+}
+
+func (r *SosreportReconciler) getSosreportConfigMap(s *supportv1alpha1.Sosreport, req ctrl.Request) (*corev1.ConfigMap, error) {
+	cm := &corev1.ConfigMap{}
+	nn := types.NamespacedName{Name: CONFIG_MAP_NAME, Namespace: req.Namespace}
+	log.Info("Retrieving ConfigMap", "NamespacedName", nn)
+	if err := r.Get(ctx, nn, cm); err != nil {
+		log.Info("unable to get configuration configmap", "err", err)
+		return nil, err
+	}
+	return cm, nil
 }
 
 func (r *SosreportReconciler) updateStatus(s *supportv1alpha1.Sosreport) {
@@ -256,9 +299,9 @@ func (r *SosreportReconciler) jobForSosreport(nodeName string, s *supportv1alpha
 					NodeName:      nodeName,
 					RestartPolicy: "Never",
 					Containers: []corev1.Container{{
-						Image:   "alpine",
+						Image:   r.imageName,
 						Name:    jobName,
-						Command: []string{"sleep", strconv.Itoa(rand.Intn(60))},
+						Command: strings.Split(r.sosreportCommand, " "),
 					}},
 				},
 			},
