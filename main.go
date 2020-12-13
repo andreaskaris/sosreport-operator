@@ -61,6 +61,7 @@ func main() {
 		Port:               9443,
 		LeaderElection:     enableLeaderElection,
 		LeaderElectionID:   "25222e09.openshift.io",
+		// Namespace:          "sosreport-operator-system",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

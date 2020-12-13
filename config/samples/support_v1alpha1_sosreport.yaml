@@ -2,6 +2,7 @@ apiVersion: support.openshift.io/v1alpha1
 kind: Sosreport
 metadata:
   name: sosreport-sample
+  #namespace: sosreport-operator-system
 #spec:
   # Add fields here
   #  foo: bar

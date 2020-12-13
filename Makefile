@@ -53,6 +53,9 @@ deploy: manifests kustomize
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
+undeploy:
+	$(KUSTOMIZE) build config/default | kubectl delete -f -
+
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
@@ -79,7 +82,7 @@ docker-push:
 
 # Build the docker image with buildah
 podman-build: test
-	buildah bud -t ${IMG} .
+	buildah bud --format docker -t ${IMG} .
 
 # Push the docker image
 podman-push:
@@ -87,13 +90,14 @@ podman-push:
 
 # Build the docker image with buildah
 podman-build-centos-sosreport:
-	cd containers/sosreport-centos && buildah bud -t ${IMG} .
+	cd containers/sosreport-centos && buildah bud --format docker -t ${IMG} .
 
 # Push the docker image
 podman-push-centos-sosreport:
 	podman push ${IMG}
 
 deploy-examples:
+	kubectl apply -f ./config/samples/namespace.yaml && \
 	kubectl apply -f ./config/samples/sosreport-config-configmap.yaml && \
 	kubectl apply -f ./config/samples/support_v1alpha1_sosreport.yaml 
 

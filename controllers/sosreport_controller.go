@@ -24,6 +24,7 @@ import (
 
 	"context"
 	"fmt"
+	"io/ioutil"
 	"strings"
 	"time"
 
@@ -35,15 +36,17 @@ import (
 	//"sigs.k8s.io/controller-runtime/pkg/handler"
 	//"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	//"sigs.k8s.io/controller-runtime/pkg/source"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/yaml"
 
 	supportv1alpha1 "github.com/andreaskaris/sosreport-operator/api/v1alpha1"
 )
 
 const (
-	CONFIG_MAP_NAME           = "sosreport-configuration"
-	DEFAULT_IMAGE_NAME        = "alpine"
-	DEFAULT_SOSREPORT_COMMAND = "sleep 60"
+	CONFIG_MAP_NAME           = "sosreport-configuration" // name of the ConfigMap with overrides
+	DEFAULT_IMAGE_NAME        = "alpine"                  // to point to final version of sosreport IMAGE
+	DEFAULT_SOSREPORT_COMMAND = "sleep 60"                // to be: bash /entrypoint.sh
 )
 
 // SosreportReconciler reconciles a Sosreport object
@@ -64,8 +67,14 @@ var ctx context.Context
 
 // +kubebuilder:rbac:groups=support.openshift.io,resources=sosreports,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=support.openshift.io,resources=sosreports/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=support.openshift.io,resources=jobs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=support.openshift.io,resources=jobs/status,verbs=get
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get
+// +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=events/status,verbs=get
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get
 
 func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx = context.Background()
@@ -130,7 +139,10 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	return ctrl.Result{}, nil
 }
 
-// trigger reconcile loop whenever the CRD is updated or associated
+/*
+Trigger reconcile loop whenever the CRD is updated or associated
+Record events for CRD "Sosreport"
+*/
 func (r *SosreportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// record events for Sosreport CRD
 	r.recorder = mgr.GetEventRecorderFor("Sosreport")
@@ -141,6 +153,10 @@ func (r *SosreportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+/*
+This method reads custom configuration from a configmap that allows admins to overwrite the sosreport generation
+image as well as the sosreport command
+*/
 func (r *SosreportReconciler) updateSosreportImageNameAndCommand(s *supportv1alpha1.Sosreport, req ctrl.Request) {
 	sosreportImage := DEFAULT_IMAGE_NAME
 	sosreportCommand := DEFAULT_SOSREPORT_COMMAND
@@ -161,6 +177,9 @@ func (r *SosreportReconciler) updateSosreportImageNameAndCommand(s *supportv1alp
 	r.sosreportCommand = sosreportCommand
 }
 
+/*
+This method retrieves the config map which is used for configuration overrides
+*/
 func (r *SosreportReconciler) getSosreportConfigMap(s *supportv1alpha1.Sosreport, req ctrl.Request) (*corev1.ConfigMap, error) {
 	cm := &corev1.ConfigMap{}
 	nn := types.NamespacedName{Name: CONFIG_MAP_NAME, Namespace: req.Namespace}
@@ -172,6 +191,9 @@ func (r *SosreportReconciler) getSosreportConfigMap(s *supportv1alpha1.Sosreport
 	return cm, nil
 }
 
+/*
+Update the "Sosreport" CR's status
+*/
 func (r *SosreportReconciler) updateStatus(s *supportv1alpha1.Sosreport) {
 	// update Sosreport resource status
 	log.Info("Updating sosreport resource status")
@@ -180,6 +202,12 @@ func (r *SosreportReconciler) updateStatus(s *supportv1alpha1.Sosreport) {
 	}
 }
 
+/*
+Get all jobs which belong to a specific sosreport
+We identify these by listing all jobs in the same namespace.
+Then, we match the sosreport's UID with the job's ownerReference.UID from the job's metadata.
+If the 2 match, then the job belongs to this sosreport.
+*/
 func (r *SosreportReconciler) getSosreportJobs(s *supportv1alpha1.Sosreport, req ctrl.Request) (*batchv1.JobList, error) {
 	allSosreportJobs := &batchv1.JobList{}
 	controllerSosreportJobs := &batchv1.JobList{}
@@ -190,6 +218,10 @@ func (r *SosreportReconciler) getSosreportJobs(s *supportv1alpha1.Sosreport, req
 	for _, sosreportJob := range allSosreportJobs.Items {
 		// https://book.kubebuilder.io/cronjob-tutorial/controller-implementation.html
 		ownerReference := jobGetController(sosreportJob)
+		// there may be other jobs in this namespace with no owner
+		if ownerReference == nil {
+			continue
+		}
 		log.Info("Inspecting sosreport job's owner",
 			"Name", sosreportJob.Name,
 			"ownerReference.Kind", ownerReference.Kind,
@@ -204,6 +236,10 @@ func (r *SosreportReconciler) getSosreportJobs(s *supportv1alpha1.Sosreport, req
 	return controllerSosreportJobs, nil
 }
 
+/*
+Go through all jobs that belong to this sosreport and check if they are done
+A job is done if isJobDone returns true. That happens if the job is either JobComplete or JobFailed
+*/
 func (r *SosreportReconciler) sosreportJobsDone(s *supportv1alpha1.Sosreport, req ctrl.Request) (bool, error) {
 	sosreportJobs, err := r.getSosreportJobs(s, req)
 	if err != nil {
@@ -224,6 +260,10 @@ func (r *SosreportReconciler) sosreportJobsDone(s *supportv1alpha1.Sosreport, re
 	return true, nil
 }
 
+/*
+This method gets the owner reference for a job if the job has an owner
+Returns nil otherwise
+*/
 func jobGetController(j batchv1.Job) *metav1.OwnerReference {
 	for _, ownerReference := range j.OwnerReferences {
 		if *ownerReference.Controller == true {
@@ -233,6 +273,9 @@ func jobGetController(j batchv1.Job) *metav1.OwnerReference {
 	return nil
 }
 
+/*
+A job is done if isJobDone returns true. That happens if the job is either JobComplete or JobFailed
+*/
 func isJobDone(j batchv1.Job) (bool, batchv1.JobConditionType) {
 	for _, c := range j.Status.Conditions {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) &&
@@ -243,6 +286,9 @@ func isJobDone(j batchv1.Job) (bool, batchv1.JobConditionType) {
 	return false, ""
 }
 
+/*
+Run jobs for this sosreport on Nodes which match the NodeSelector.
+*/
 func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport) (bool, error) {
 	// implement loop through nodes that are matched by sosreport's NodeSelector
 	nodeList := &corev1.NodeList{}
@@ -262,10 +308,12 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport) (bo
 	}
 	for _, node := range nodeList.Items {
 		nodeName := node.Name
+		// Get a sosreport on this node
 		job, err := r.jobForSosreport(nodeName, s)
 		if err != nil {
 			return false, err
 		}
+		// Create the job
 		log.Info("Creating new job", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
 		err = r.Create(ctx, job)
 		if err != nil {
@@ -279,11 +327,36 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport) (bo
 	return true, nil
 }
 
+/*
+Return a single job
+*/
 func (r *SosreportReconciler) jobForSosreport(nodeName string, s *supportv1alpha1.Sosreport) (*batchv1.Job, error) {
 	layout := "20060102150405"
 	jobName := fmt.Sprintf("%s-%s-%s", s.Name, nodeName, time.Now().Format(layout))
-	labels := r.labelsForSosreport(s.Name)
-	job := &batchv1.Job{
+	labels := r.labelsForSosreportJob(s.Name)
+
+	// read job dynamically from template
+	job, err := r.jobFromTemplate("sosreport.yaml")
+	if err != nil {
+		return nil, err
+	}
+	// set this job's specific fields
+	job.ObjectMeta = metav1.ObjectMeta{
+		Labels:      make(map[string]string),
+		Annotations: make(map[string]string),
+		Name:        jobName,
+		Namespace:   s.Namespace,
+	}
+	job.Spec.Template.ObjectMeta = metav1.ObjectMeta{
+		Labels: labels,
+	}
+	job.Spec.Template.Spec.NodeName = nodeName
+	job.Spec.Template.Spec.Containers[0].Image = r.imageName
+	job.Spec.Template.Spec.Containers[0].Name = jobName
+	job.Spec.Template.Spec.Containers[0].Command = strings.Split(r.sosreportCommand, " ")
+
+	// For reference, statically created job:
+	/*job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      make(map[string]string),
 			Annotations: make(map[string]string),
@@ -306,7 +379,7 @@ func (r *SosreportReconciler) jobForSosreport(nodeName string, s *supportv1alpha
 				},
 			},
 		},
-	}
+	}*/
 
 	// Set Sosreport instance as the owner of this job
 	ctrl.SetControllerReference(s, job, r.Scheme)
@@ -314,6 +387,37 @@ func (r *SosreportReconciler) jobForSosreport(nodeName string, s *supportv1alpha
 	return job, nil
 }
 
-func (r *SosreportReconciler) labelsForSosreport(name string) map[string]string {
+/*
+Return the labels that shall be attached to a sosreport's job
+*/
+func (r *SosreportReconciler) labelsForSosreportJob(name string) map[string]string {
 	return map[string]string{"app": "sosreport", "sosreport-cr": name}
+}
+
+/*
+Dynamically read a job from a template in the templates/ subfolder
+See https://github.com/kubernetes/client-go/issues/193
+*/
+func (r *SosreportReconciler) jobFromTemplate(templateName string) (*batchv1.Job, error) {
+	yamlBytes, err := ioutil.ReadFile("templates/" + templateName)
+	if err != nil {
+		log.Error(err, "Could not open template file")
+		return nil, err
+	}
+	jsonBytes, err := yaml.YAMLToJSON(yamlBytes)
+	if err != nil {
+		log.Error(err, "Could not convert from YAML to JSON")
+		return nil, err
+	}
+
+	decode := scheme.Codecs.UniversalDeserializer().Decode
+
+	obj, _, err := decode(jsonBytes, nil, nil)
+	if err != nil {
+		log.Error(err, "Could not decode from template")
+		return nil, err
+	}
+
+	job := obj.(*batchv1.Job)
+	return job, nil
 }

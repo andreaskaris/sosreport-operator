@@ -30,7 +30,14 @@ make run ENABLE_WEBHOOKS=false
 
 To install the operator:
 ~~~
-(...)
+make podman-build IMG=kind:5000/sosreport-operator:v0.0.1
+make podman-push IMG=kind:5000/sosreport-operator:v0.0.1
+make deploy IMG=kind:5000/sosreport-operator:v0.0.1
+~~~
+
+To remove the operator again:
+~~~
+make undeploy
 ~~~
 
 ## Example custom resources (CRs)

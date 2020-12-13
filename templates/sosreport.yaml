@@ -2,32 +2,24 @@
 # https://github.com/containers/podman/issues/5364
 # oc adm policy add-scc-to-user privileged -z default
 # mimic: command: podman run -it --name toolbox- --privileged --ipc=host --net=host --pid=host -e HOST=/host -e NAME=toolbox- -e IMAGE=registry.redhat.io/rhel8/support-tools:latest -v /run:/run -v /var/log:/var/log -v /etc/machine-id:/etc/machine-id -v /etc/localtime:/etc/localtime -v /:/host registry.redhat.io/rhel8/support-tools:latest
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: sosreport-deployment
-  labels:
-    app: sosreport-deployment
+  name: sosreport-job
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: sosreport-pod
   template:
-    metadata:
-      labels:
-        app: sosreport-pod
     spec:
       hostIPD: true
       hostNetwork: true
       hostPID: true
+      restartPolicy: Never
       containers:
       - name: sosreport
-        image: kind:5000/sosreport-centos
+        image: alpine
+        # imagePullPolicy: Always  # with :latest -> Always, otherwise IfNotPresent
         command:
-          - sleep
-          - infinity
-        imagePullPolicy: Always
+          - "sleep"
+          - "60"
         securityContext:
           privileged: true
         volumeMounts:
