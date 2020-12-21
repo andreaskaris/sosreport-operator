@@ -1,0 +1,81 @@
+# This shouldn't be used by the operator, but it's here for testing
+# different settings for the sosreport image
+# Need SETFCAP to install specific RPMs like uputils
+# https://github.com/containers/podman/issues/5364
+# oc adm policy add-scc-to-user privileged -z default
+# mimic: command: podman run -it --name toolbox- --privileged --ipc=host --net=host --pid=host -e HOST=/host -e NAME=toolbox- -e IMAGE=registry.redhat.io/rhel8/support-tools:latest -v /run:/run -v /var/log:/var/log -v /etc/machine-id:/etc/machine-id -v /etc/localtime:/etc/localtime -v /:/host registry.redhat.io/rhel8/support-tools:latest
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sosreport-deployment
+  labels:
+    app: sosreport-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sosreport-deployment
+  template:
+    metadata:
+      labels:
+        app: sosreport-deployment
+    spec:
+      hostIPD: true
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: sosreport
+        image: kind:5000/sosreport-centos
+        imagePullPolicy: Always  # with :latest -> Always, otherwise IfNotPresent
+        env:
+        - name: CASE_NUMBER
+          value: "00000000"
+        - name: RH_USERNAME
+          value: "test@example.com"
+        - name: RH_PASSWORD
+          value: "password"
+        - name: UPLOAD_SOSREPORT
+          value: false
+        - name: DEBUG
+          value: false
+        - name: SIMULATION_MODE
+          value: true
+        - name: OBFUSCATE
+          value: false
+        command:
+          - "sleep"
+          - "3600"
+        securityContext:
+          privileged: true
+        volumeMounts:
+          - mountPath: /run
+            name: run
+          - mountPath: /var/log
+            name: varlog
+          - mountPath: /etc/machine-id
+            name: machineid
+#          - mountPath: /etc/localtime
+#            name: localtime
+          - mountPath: /host
+            name: host
+      volumes:
+      - name: run
+        hostPath:
+          path: /run/
+          type: Directory
+      - name: varlog
+        hostPath:
+          path: /var/log
+          type: Directory
+      - name: machineid
+        hostPath:
+          path: /etc/machine-id
+          type: File
+#      - name: localtime
+#        hostPath:
+#          path: /etc/localtime
+#          type: File
+      - name: host
+        hostPath:
+          path: /
+          type: Directory

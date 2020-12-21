@@ -5,4 +5,8 @@ metadata:
   # namespace: sosreport-operator-system
 data:
   sosreport-image: "kind:5000/sosreport-centos"
-  sosreport-command: "bash /entrypoint.sh"
+  sosreport-command: "bash -x /entrypoint.sh"
+  case-number: "00000000"
+  upload-sosreport: "false"
+  simulation-mode: "true"
+  obfuscate: "false"

@@ -44,9 +44,10 @@ import (
 )
 
 const (
-	CONFIG_MAP_NAME           = "sosreport-configuration" // name of the ConfigMap with overrides
-	DEFAULT_IMAGE_NAME        = "alpine"                  // to point to final version of sosreport IMAGE
-	DEFAULT_SOSREPORT_COMMAND = "sleep 60"                // to be: bash /entrypoint.sh
+	CONFIG_MAP_NAME           = "sosreport-configuration"  // name of the ConfigMap with overrides
+	SECRET_NAME               = "sosreport-authentication" // name of the Secret for upload authentication
+	DEFAULT_IMAGE_NAME        = "alpine"                   // to point to final version of sosreport IMAGE
+	DEFAULT_SOSREPORT_COMMAND = "sleep 60"                 // to be: bash -x /entrypoint.sh
 )
 
 // SosreportReconciler reconciles a Sosreport object
@@ -117,7 +118,7 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		// before we run this, read some configuration from configmap
 		r.updateSosreportImageNameAndCommand(sosreport, req)
 
-		sosreport.Status.InProgress, err = r.runSosreportJobs(sosreport)
+		sosreport.Status.InProgress, err = r.runSosreportJobs(sosreport, req)
 		if err != nil {
 			log.Error(err, "unable to run sosreport jobs")
 			return ctrl.Result{}, err
@@ -151,6 +152,44 @@ func (r *SosreportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&supportv1alpha1.Sosreport{}).
 		Owns(&batchv1.Job{}).
 		Complete(r)
+}
+
+/*
+This method reads custom configuration from a configmap and secret and populates a map containing configuration items
+*/
+func (r *SosreportReconciler) getConfigurationFromConfigMapAndSecret(s *supportv1alpha1.Sosreport, req ctrl.Request) map[string]string {
+	keyMapCm := map[string]string{
+		"case-number":      "CASE_NUMBER",
+		"upload-sosreport": "UPLOAD_SOSREPORT",
+		"simulation-mode":  "SIMULATION_MODE",
+		"obfuscate":        "OBFUSCATE",
+	}
+	keyMapSecret := map[string]string{
+		"username": "RH_USERNAME",
+		"password": "RH_PASSWORD",
+	}
+
+	configurationMap := make(map[string]string)
+
+	cm, err := r.getSosreportConfigMap(s, req)
+	if err == nil {
+		for k, v := range cm.Data {
+			// username and password shall be provided by secret
+			if envK, ok := keyMapCm[k]; ok {
+				configurationMap[envK] = v
+			}
+		}
+	}
+	secret, err := r.getSosreportSecret(s, req)
+	if err == nil {
+		for k, v := range secret.Data {
+			// username and password shall be provided by secret
+			if envK, ok := keyMapSecret[k]; ok {
+				configurationMap[envK] = string(v)
+			}
+		}
+	}
+	return configurationMap
 }
 
 /*
@@ -189,6 +228,20 @@ func (r *SosreportReconciler) getSosreportConfigMap(s *supportv1alpha1.Sosreport
 		return nil, err
 	}
 	return cm, nil
+}
+
+/*
+This method retrieves the secret which is used for sosreport attachment authentication
+*/
+func (r *SosreportReconciler) getSosreportSecret(s *supportv1alpha1.Sosreport, req ctrl.Request) (*corev1.Secret, error) {
+	secret := &corev1.Secret{}
+	nn := types.NamespacedName{Name: SECRET_NAME, Namespace: req.Namespace}
+	log.Info("Retrieving Secret", "NamespacedName", nn)
+	if err := r.Get(ctx, nn, secret); err != nil {
+		log.Info("unable to get authentication Secret", "err", err)
+		return nil, err
+	}
+	return secret, nil
 }
 
 /*
@@ -257,6 +310,11 @@ func (r *SosreportReconciler) sosreportJobsDone(s *supportv1alpha1.Sosreport, re
 			return false, nil
 		}
 	}
+	// log as an event for the sosreport
+	// TBD - individual logging per jobs - this is more complex as we should only log the event once
+	// per job. In the meantime, simply create an event when all jobs are done
+	r.recorder.Event(s, corev1.EventTypeNormal, "Sosreports finished", "All Sosreports finished")
+
 	return true, nil
 }
 
@@ -289,7 +347,7 @@ func isJobDone(j batchv1.Job) (bool, batchv1.JobConditionType) {
 /*
 Run jobs for this sosreport on Nodes which match the NodeSelector.
 */
-func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport) (bool, error) {
+func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req ctrl.Request) (bool, error) {
 	// implement loop through nodes that are matched by sosreport's NodeSelector
 	nodeList := &corev1.NodeList{}
 	log.Info("Using NodeSelector", "s.Spec.NodeSelector", s.Spec.NodeSelector)
@@ -306,10 +364,14 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport) (bo
 		)
 		return false, nil
 	}
+
+	// merge the ConfigMap and Secret and retrieve them as a map[string]string
+	configurationMap := r.getConfigurationFromConfigMapAndSecret(s, req)
+
 	for _, node := range nodeList.Items {
 		nodeName := node.Name
 		// Get a sosreport on this node
-		job, err := r.jobForSosreport(nodeName, s)
+		job, err := r.jobForSosreport(nodeName, configurationMap, s)
 		if err != nil {
 			return false, err
 		}
@@ -328,9 +390,23 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport) (bo
 }
 
 /*
+Convert a map[string]string into []corev1.EnvVar
+*/
+func mapToEnvVarArr(configurationMap map[string]string) []corev1.EnvVar {
+	var envArr []corev1.EnvVar
+	for k, v := range configurationMap {
+		envArr = append(envArr, corev1.EnvVar{
+			Name:  k,
+			Value: v,
+		})
+	}
+	return envArr
+}
+
+/*
 Return a single job
 */
-func (r *SosreportReconciler) jobForSosreport(nodeName string, s *supportv1alpha1.Sosreport) (*batchv1.Job, error) {
+func (r *SosreportReconciler) jobForSosreport(nodeName string, environmentMap map[string]string, s *supportv1alpha1.Sosreport) (*batchv1.Job, error) {
 	layout := "20060102150405"
 	jobName := fmt.Sprintf("%s-%s-%s", s.Name, nodeName, time.Now().Format(layout))
 	labels := r.labelsForSosreportJob(s.Name)
@@ -355,31 +431,7 @@ func (r *SosreportReconciler) jobForSosreport(nodeName string, s *supportv1alpha
 	job.Spec.Template.Spec.Containers[0].Name = jobName
 	job.Spec.Template.Spec.Containers[0].Command = strings.Split(r.sosreportCommand, " ")
 
-	// For reference, statically created job:
-	/*job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels:      make(map[string]string),
-			Annotations: make(map[string]string),
-			Name:        jobName,
-			Namespace:   s.Namespace,
-		},
-		Spec: batchv1.JobSpec{
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: corev1.PodSpec{
-					NodeName:      nodeName,
-					RestartPolicy: "Never",
-					Containers: []corev1.Container{{
-						Image:   r.imageName,
-						Name:    jobName,
-						Command: strings.Split(r.sosreportCommand, " "),
-					}},
-				},
-			},
-		},
-	}*/
+	job.Spec.Template.Spec.Containers[0].Env = mapToEnvVarArr(environmentMap)
 
 	// Set Sosreport instance as the owner of this job
 	ctrl.SetControllerReference(s, job, r.Scheme)
