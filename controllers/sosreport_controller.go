@@ -44,10 +44,11 @@ import (
 )
 
 const (
-	CONFIG_MAP_NAME           = "sosreport-configuration"  // name of the ConfigMap with overrides
-	SECRET_NAME               = "sosreport-authentication" // name of the Secret for upload authentication
-	DEFAULT_IMAGE_NAME        = "alpine"                   // to point to final version of sosreport IMAGE
-	DEFAULT_SOSREPORT_COMMAND = "sleep 60"                 // to be: bash -x /entrypoint.sh
+	GLOBAL_CONFIG_MAP_NAME    = "sosreport-global-configuration" // name of the global ConfigMap with overrides
+	UPLOAD_CONFIG_MAP_NAME    = "sosreport-upload-configuration" // name of the upload ConfigMap
+	UPLOAD_SECRET_NAME        = "sosreport-upload-secret"        // name of the Secret for upload authentication
+	DEFAULT_IMAGE_NAME        = "alpine"                         // to point to final version of sosreport IMAGE
+	DEFAULT_SOSREPORT_COMMAND = "sleep 60"                       // to be: bash -x /entrypoint.sh
 )
 
 // SosreportReconciler reconciles a Sosreport object
@@ -72,6 +73,8 @@ var ctx context.Context
 // +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets/status,verbs=get
 // +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events/status,verbs=get
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
@@ -155,51 +158,13 @@ func (r *SosreportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 /*
-This method reads custom configuration from a configmap and secret and populates a map containing configuration items
-*/
-func (r *SosreportReconciler) getConfigurationFromConfigMapAndSecret(s *supportv1alpha1.Sosreport, req ctrl.Request) map[string]string {
-	keyMapCm := map[string]string{
-		"case-number":      "CASE_NUMBER",
-		"upload-sosreport": "UPLOAD_SOSREPORT",
-		"simulation-mode":  "SIMULATION_MODE",
-		"obfuscate":        "OBFUSCATE",
-	}
-	keyMapSecret := map[string]string{
-		"username": "RH_USERNAME",
-		"password": "RH_PASSWORD",
-	}
-
-	configurationMap := make(map[string]string)
-
-	cm, err := r.getSosreportConfigMap(s, req)
-	if err == nil {
-		for k, v := range cm.Data {
-			// username and password shall be provided by secret
-			if envK, ok := keyMapCm[k]; ok {
-				configurationMap[envK] = v
-			}
-		}
-	}
-	secret, err := r.getSosreportSecret(s, req)
-	if err == nil {
-		for k, v := range secret.Data {
-			// username and password shall be provided by secret
-			if envK, ok := keyMapSecret[k]; ok {
-				configurationMap[envK] = string(v)
-			}
-		}
-	}
-	return configurationMap
-}
-
-/*
 This method reads custom configuration from a configmap that allows admins to overwrite the sosreport generation
 image as well as the sosreport command
 */
 func (r *SosreportReconciler) updateSosreportImageNameAndCommand(s *supportv1alpha1.Sosreport, req ctrl.Request) {
 	sosreportImage := DEFAULT_IMAGE_NAME
 	sosreportCommand := DEFAULT_SOSREPORT_COMMAND
-	cm, err := r.getSosreportConfigMap(s, req)
+	cm, err := r.getSosreportConfigMap(GLOBAL_CONFIG_MAP_NAME, s, req)
 	if err == nil {
 		sosreportImageCm, ok := cm.Data["sosreport-image"]
 		if ok {
@@ -217,11 +182,61 @@ func (r *SosreportReconciler) updateSosreportImageNameAndCommand(s *supportv1alp
 }
 
 /*
+This method reads custom configuration from a configmap and secret and populates a map containing configuration items
+*/
+func (r *SosreportReconciler) getEnvConfigurationFromConfigMapAndSecret(s *supportv1alpha1.Sosreport, req ctrl.Request) map[string]string {
+	keyMapUploadCm := map[string]string{
+		"case-number":      "CASE_NUMBER",
+		"upload-sosreport": "UPLOAD_SOSREPORT",
+		"obfuscate":        "OBFUSCATE",
+	}
+	keyMapGlobalCm := map[string]string{
+		"simulation-mode": "SIMULATION_MODE",
+		"debug":           "DEBUG",
+	}
+	keyMapSecret := map[string]string{
+		"username": "RH_USERNAME",
+		"password": "RH_PASSWORD",
+	}
+
+	configurationMap := make(map[string]string)
+
+	cmg, err := r.getSosreportConfigMap(UPLOAD_CONFIG_MAP_NAME, s, req)
+	if err == nil {
+		for k, v := range cmg.Data {
+			// username and password shall be provided by secret
+			if envK, ok := keyMapUploadCm[k]; ok {
+				configurationMap[envK] = v
+			}
+		}
+	}
+	cmu, err := r.getSosreportConfigMap(GLOBAL_CONFIG_MAP_NAME, s, req)
+	if err == nil {
+		for k, v := range cmu.Data {
+			// username and password shall be provided by secret
+			if envK, ok := keyMapGlobalCm[k]; ok {
+				configurationMap[envK] = v
+			}
+		}
+	}
+	secret, err := r.getSosreportSecret(s, req)
+	if err == nil {
+		for k, v := range secret.Data {
+			// username and password shall be provided by secret
+			if envK, ok := keyMapSecret[k]; ok {
+				configurationMap[envK] = string(v)
+			}
+		}
+	}
+	return configurationMap
+}
+
+/*
 This method retrieves the config map which is used for configuration overrides
 */
-func (r *SosreportReconciler) getSosreportConfigMap(s *supportv1alpha1.Sosreport, req ctrl.Request) (*corev1.ConfigMap, error) {
+func (r *SosreportReconciler) getSosreportConfigMap(configMapName string, s *supportv1alpha1.Sosreport, req ctrl.Request) (*corev1.ConfigMap, error) {
 	cm := &corev1.ConfigMap{}
-	nn := types.NamespacedName{Name: CONFIG_MAP_NAME, Namespace: req.Namespace}
+	nn := types.NamespacedName{Name: configMapName, Namespace: req.Namespace}
 	log.Info("Retrieving ConfigMap", "NamespacedName", nn)
 	if err := r.Get(ctx, nn, cm); err != nil {
 		log.Info("unable to get configuration configmap", "err", err)
@@ -235,7 +250,7 @@ This method retrieves the secret which is used for sosreport attachment authenti
 */
 func (r *SosreportReconciler) getSosreportSecret(s *supportv1alpha1.Sosreport, req ctrl.Request) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
-	nn := types.NamespacedName{Name: SECRET_NAME, Namespace: req.Namespace}
+	nn := types.NamespacedName{Name: UPLOAD_SECRET_NAME, Namespace: req.Namespace}
 	log.Info("Retrieving Secret", "NamespacedName", nn)
 	if err := r.Get(ctx, nn, secret); err != nil {
 		log.Info("unable to get authentication Secret", "err", err)
@@ -366,7 +381,7 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req
 	}
 
 	// merge the ConfigMap and Secret and retrieve them as a map[string]string
-	configurationMap := r.getConfigurationFromConfigMapAndSecret(s, req)
+	configurationMap := r.getEnvConfigurationFromConfigMapAndSecret(s, req)
 
 	for _, node := range nodeList.Items {
 		nodeName := node.Name

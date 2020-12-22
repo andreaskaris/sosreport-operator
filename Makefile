@@ -97,12 +97,15 @@ podman-push-centos-sosreport:
 	podman push ${IMG}
 
 deploy-examples:
-	kubectl apply -f ./config/samples/namespace.yaml && \
-	kubectl apply -f ./config/samples/sosreport-config-configmap.yaml && \
+	kubectl apply -f ./config/samples/configmap-sosreport-global-configuration.yaml && \
+	kubectl apply -f ./config/samples/configmap-sosreport-upload-configuration.yaml && \
+	kubectl apply -f ./config/samples/secret-sosreport-upload-secret.yaml && \
 	kubectl apply -f ./config/samples/support_v1alpha1_sosreport.yaml 
 
 undeploy-examples:
-	kubectl delete -f ./config/samples/sosreport-config-configmap.yaml && \
+	kubectl delete -f ./config/samples/configmap-sosreport-global-configuration.yaml && \
+	kubectl delete -f ./config/samples/configmap-sosreport-upload-configuration.yaml && \
+	kubectl delete -f ./config/samples/secret-sosreport-upload-secret.yaml && \
 	kubectl delete -f ./config/samples/support_v1alpha1_sosreport.yaml 
 
 # find or download controller-gen

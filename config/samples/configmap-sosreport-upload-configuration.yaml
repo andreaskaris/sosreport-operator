@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sosreport-upload-configuration
+  # namespace: sosreport-operator-system
+data:
+  case-number: "00000000"
+  upload-sosreport: "false"
+  obfuscate: "false"

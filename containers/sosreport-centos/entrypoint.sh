@@ -1,4 +1,4 @@
-#!/bin/bash -x
+#!/bin/bash
 
 # Variables:
 # CASE_NUMBER - Case number for portal
@@ -41,6 +41,7 @@ if ${UPLOAD_SOSREPORT:-false} ; then
 	echo "No password provided. Cannot upload sosreport to case."
 	exit 1
     fi
+    mkdir /root/.redhat-support-tool/ 2>/dev/null
     cat <<EOF > /root/.redhat-support-tool/redhat-support-tool.conf
 [RHHelp]
 user = $RH_USERNAME
@@ -52,5 +53,7 @@ EOF
     case_number="-c $CASE_NUMBER"
     support_tool_options="$case_number $description $obfuscate"
     
-    redhat-support-tool addattachment $support_tool_options $sosreport_file
+    echo "n" | redhat-support-tool addattachment $support_tool_options $sosreport_file
+    # remove the authentication file
+    rm -f /root/.redhat-support-tool/redhat-support-tool.conf
 fi

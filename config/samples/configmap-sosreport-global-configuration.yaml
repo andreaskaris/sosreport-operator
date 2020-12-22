@@ -1,12 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: sosreport-configuration
+  name: sosreport-global-configuration
   # namespace: sosreport-operator-system
 data:
-  sosreport-image: "kind:5000/sosreport-centos"
+  sosreport-image: "kind:5000/sosreport-centos:latest"
   sosreport-command: "bash -x /entrypoint.sh"
-  case-number: "00000000"
-  upload-sosreport: "false"
   simulation-mode: "true"
-  obfuscate: "false"
+  debug: "true"

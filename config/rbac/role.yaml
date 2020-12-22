@@ -57,6 +57,24 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets/status
+  verbs:
+  - get
+- apiGroups:
   - batch
   resources:
   - jobs
