@@ -23,8 +23,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 
@@ -126,6 +128,7 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Error(err, "unable to run sosreport jobs")
 			return ctrl.Result{}, err
 		}
+		log.Info("Updating sosreport status", "sosreport.Status.InProgress", sosreport.Status.InProgress)
 		r.updateStatus(sosreport)
 	} else {
 		done, err := r.sosreportJobsDone(sosreport, req)
@@ -461,12 +464,38 @@ func (r *SosreportReconciler) labelsForSosreportJob(name string) map[string]stri
 	return map[string]string{"app": "sosreport", "sosreport-cr": name}
 }
 
+func getTemplatesDir() (string, error) {
+	// This should normally find a templates directory right in the directory where this application is running
+	// in case of unit tests, we might find templates at "../templates", instead
+	for _, d := range []string{"templates", "../templates"} {
+		if _, err := os.Stat(d); err != nil {
+			if os.IsNotExist(err) {
+				// file does not exist
+				log.Info("Dir '" + d + "' does not exist, skipping")
+			} else {
+				// other error
+				log.Info("Other issue with dir '" + d + "': " + err.Error())
+			}
+			continue
+		}
+		log.Info("Base directory is: " + d)
+		return d, nil
+	}
+
+	// return the default value
+	return "", errors.New("Cannot find a valid base directory for templates")
+}
+
 /*
 Dynamically read a job from a template in the templates/ subfolder
 See https://github.com/kubernetes/client-go/issues/193
 */
 func (r *SosreportReconciler) jobFromTemplate(templateName string) (*batchv1.Job, error) {
-	yamlBytes, err := ioutil.ReadFile("templates/" + templateName)
+	templatesDir, err := getTemplatesDir()
+	if err != nil {
+		return nil, err
+	}
+	yamlBytes, err := ioutil.ReadFile(templatesDir + "/" + templateName)
 	if err != nil {
 		log.Error(err, "Could not open template file")
 		return nil, err
