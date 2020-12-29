@@ -106,3 +106,37 @@ stringData:
   username: test@example.com
   password: password
 ~~~
+
+## Generating OLM bundle images
+
+### For local registry
+~~~
+make bundle IMG=kind:5000/sosreport-operator:v0.0.1
+make bundle-build-podman BUNDLE_IMG=kind:5000/sosreport-operator-bundle:v0.0.1
+make bundle-push-podman BUNDLE_IMG=kind:5000/sosreport-operator-bundle:v0.0.1
+make bundle-validate-podman BUNDLE_IMG=kind:5000/sosreport-operator-bundle:v0.0.1
+~~~
+
+### For quay.io
+
+~~~
+make bundle IMG=quay.io/akaris/sosreport-operator:latest
+~~~
+
+Simply commit the current snapshot of the repository. Quay will automatically build an image from the latest snapshot.
+
+## Generating OLM index images
+
+> For further details, see [https://github.com/operator-framework/operator-registry#building-an-index-of-operators-using-opm](https://github.com/operator-framework/operator-registry#building-an-index-of-operators-using-opm)
+
+Prerequisites - installing OPM:
+~~~
+make opm
+~~~
+
+### Local registry
+
+~~~
+make index-build BUNDLE_IMG=kind:5000/sosreport-operator-bundle:v0.0.1 INDEX_IMG=kind:5000/sosreport-operator-index:v0.0.1
+make index-push-podman INDEX_IMG=kind:5000/sosreport-operator-index:v0.0.1
+~~~

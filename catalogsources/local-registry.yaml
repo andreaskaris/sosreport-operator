@@ -1,0 +1,8 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: sosreport-operator-manifests
+  namespace: olm
+spec:
+  sourceType: grpc
+  image: kind:5000/sosreport-operator-index:v0.0.1

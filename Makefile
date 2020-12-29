@@ -152,3 +152,29 @@ bundle: manifests kustomize
 .PHONY: bundle-build
 bundle-build:
 	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+
+# Build the bundle image.
+.PHONY: bundle-build
+bundle-build-podman:
+	buildah bud -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+
+bundle-push-podman:
+	podman push $(BUNDLE_IMG)
+
+bundle-validate:
+	operator-sdk bundle validate $(BUNDLE_IMG)
+
+bundle-validate-podman:
+	operator-sdk bundle validate -b podman $(BUNDLE_IMG)
+
+opm:
+	go get github.com/operator-framework/operator-registry ; \
+	cd $(GOPATH)/src/github.com/operator-framework/operator-registry ; \
+	make ; \
+	cp bin/opm /usr/local/bin/opm
+
+index-build:
+	opm index add --bundles ${BUNDLE_IMG} --tag ${INDEX_IMG}
+
+index-push-podman:
+	podman push ${INDEX_IMG}

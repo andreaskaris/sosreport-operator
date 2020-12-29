@@ -1,0 +1,52 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+    operators.operatorframework.io/builder: operator-sdk-v1.2.0+git
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
+  name: sosreport-operator.vX.Y.Z
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: Sosreport is the Schema for the sosreports API
+      displayName: Sosreport
+      kind: Sosreport
+      name: sosreports.support.openshift.io
+      version: v1alpha1
+  description: Operator that facilitates the generation of sosreports
+  displayName: sosreport-operator
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - sosreport
+  - debugging
+  - troubleshooting
+  links:
+  - name: Sosreport Operator
+    url: https://github.com/andreaskaris/sosreport-operator
+  maintainers:
+  - email: ak.karis@gmail.com
+    name: Andreas Karis
+  maturity: alpha
+  provider:
+    name: akaris
+    url: https://github.com/andreaskaris/sosreport-operator
+  version: 0.0.0
