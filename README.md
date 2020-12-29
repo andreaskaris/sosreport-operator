@@ -54,6 +54,7 @@ make undeploy
 ~~~
 
 > quai.io will automatically build images from the latest commit
+
 > Make sure that ConfigMap `sosreport-global-configuration` field `sosreport-image` points to `quay.io/akaris/sosreport-centos:main` (that's also the default if unset)
 
 ## Example custom resources (CRs)
