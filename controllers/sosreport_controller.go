@@ -46,11 +46,11 @@ import (
 )
 
 const (
-	GLOBAL_CONFIG_MAP_NAME    = "sosreport-global-configuration" // name of the global ConfigMap with overrides
-	UPLOAD_CONFIG_MAP_NAME    = "sosreport-upload-configuration" // name of the upload ConfigMap
-	UPLOAD_SECRET_NAME        = "sosreport-upload-secret"        // name of the Secret for upload authentication
-	DEFAULT_IMAGE_NAME        = "alpine"                         // to point to final version of sosreport IMAGE
-	DEFAULT_SOSREPORT_COMMAND = "sleep 60"                       // to be: bash -x /entrypoint.sh
+	GLOBAL_CONFIG_MAP_NAME    = "sosreport-global-configuration"       // name of the global ConfigMap with overrides
+	UPLOAD_CONFIG_MAP_NAME    = "sosreport-upload-configuration"       // name of the upload ConfigMap
+	UPLOAD_SECRET_NAME        = "sosreport-upload-secret"              // name of the Secret for upload authentication
+	DEFAULT_IMAGE_NAME        = "quay.io/akaris/sosreport-centos:main" // to point to final version of sosreport IMAGE
+	DEFAULT_SOSREPORT_COMMAND = "bash /entrypoint.sh"                  // to point to the entrypoint
 )
 
 // SosreportReconciler reconciles a Sosreport object
