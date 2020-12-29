@@ -2,7 +2,7 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
   name: sosreport-operator-manifests
-  namespace: olm
+  namespace: openshift-marketplace
 spec:
   sourceType: grpc
   image: quay.io/akaris/sosreport-operator-index:latest

@@ -140,3 +140,11 @@ make opm
 make index-build BUNDLE_IMG=kind:5000/sosreport-operator-bundle:v0.0.1 INDEX_IMG=kind:5000/sosreport-operator-index:v0.0.1
 make index-push-podman INDEX_IMG=kind:5000/sosreport-operator-index:v0.0.1
 ~~~
+
+### Quay.io
+
+~~~
+make index-build BUNDLE_IMG=quay.io/akaris/sosreport-operator-bundle:latest INDEX_IMG=quay.io/akaris/sosreport-operator-index:latest
+podman login quay.io
+make index-push-podman INDEX_IMG=quay.io/akaris/sosreport-operator-index:latest
+~~~
