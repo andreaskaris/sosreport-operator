@@ -89,6 +89,16 @@ rules:
 - apiGroups:
   - batch
   resources:
+  - jobs/finalizers
+  verbs:
+  - create
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - batch
+  resources:
   - jobs/status
   verbs:
   - get
