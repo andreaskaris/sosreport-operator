@@ -71,6 +71,7 @@ var ctx context.Context
 
 // +kubebuilder:rbac:groups=support.openshift.io,resources=sosreports,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=support.openshift.io,resources=sosreports/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=support.openshift.io,resources=sosreports/finalizers,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
 // +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;create;update;patch;delete
@@ -82,6 +83,7 @@ var ctx context.Context
 // +kubebuilder:rbac:groups="",resources=events/status,verbs=get
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get
+// +kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,resourceNames=privileged,verbs=use
 
 func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx = context.Background()

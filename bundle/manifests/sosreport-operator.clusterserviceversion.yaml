@@ -132,6 +132,14 @@ spec:
           verbs:
           - get
         - apiGroups:
+          - security.openshift.io
+          resourceNames:
+          - privileged
+          resources:
+          - securitycontextconstraints
+          verbs:
+          - use
+        - apiGroups:
           - support.openshift.io
           resources:
           - sosreports
@@ -141,6 +149,16 @@ spec:
           - get
           - list
           - patch
+          - update
+          - watch
+        - apiGroups:
+          - support.openshift.io
+          resources:
+          - sosreports/finalizers
+          verbs:
+          - create
+          - get
+          - list
           - update
           - watch
         - apiGroups:
