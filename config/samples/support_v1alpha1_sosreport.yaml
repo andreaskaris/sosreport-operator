@@ -3,6 +3,8 @@ kind: Sosreport
 metadata:
   name: sosreport-sample
   #namespace: sosreport-operator-system
-#spec:
+spec:
+  nodeSelector:
+    type: worker
   # Add fields here
   #  foo: bar

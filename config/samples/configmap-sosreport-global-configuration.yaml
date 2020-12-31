@@ -8,3 +8,4 @@ data:
   sosreport-command: "bash -x /entrypoint.sh"
   simulation-mode: "true"
   debug: "true"
+  concurrency: "1"

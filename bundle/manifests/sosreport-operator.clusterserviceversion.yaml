@@ -9,6 +9,11 @@ metadata:
           "kind": "Sosreport",
           "metadata": {
             "name": "sosreport-sample"
+          },
+          "spec": {
+            "nodeSelector": {
+              "type": "worker"
+            }
           }
         }
       ]

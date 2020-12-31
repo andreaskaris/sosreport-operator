@@ -23,10 +23,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,11 +48,12 @@ import (
 )
 
 const (
-	GLOBAL_CONFIG_MAP_NAME    = "sosreport-global-configuration"       // name of the global ConfigMap with overrides
-	UPLOAD_CONFIG_MAP_NAME    = "sosreport-upload-configuration"       // name of the upload ConfigMap
-	UPLOAD_SECRET_NAME        = "sosreport-upload-secret"              // name of the Secret for upload authentication
-	DEFAULT_IMAGE_NAME        = "quay.io/akaris/sosreport-centos:main" // to point to final version of sosreport IMAGE
-	DEFAULT_SOSREPORT_COMMAND = "bash /entrypoint.sh"                  // to point to the entrypoint
+	GLOBAL_CONFIG_MAP_NAME        = "sosreport-global-configuration"       // name of the global ConfigMap with overrides
+	UPLOAD_CONFIG_MAP_NAME        = "sosreport-upload-configuration"       // name of the upload ConfigMap
+	UPLOAD_SECRET_NAME            = "sosreport-upload-secret"              // name of the Secret for upload authentication
+	DEFAULT_IMAGE_NAME            = "quay.io/akaris/sosreport-centos:main" // to point to final version of sosreport IMAGE
+	DEFAULT_SOSREPORT_COMMAND     = "bash /entrypoint.sh"                  // to point to the entrypoint
+	DEFAULT_SOSREPORT_CONCURRENCY = 1
 )
 
 // SosreportReconciler reconciles a Sosreport object
@@ -59,11 +62,16 @@ type SosreportReconciler struct {
 	Log      logr.Logger
 	Scheme   *runtime.Scheme
 	recorder record.EventRecorder
-	// the runlist takes care of race conditions due to caching delay
-	// a sosreport on the runlist will not be run again
-	runlist          map[types.UID]struct{}
-	imageName        string // name of the soreport job's image
-	sosreportCommand string // command to run for the sosreport image
+	// the runList takes care of race conditions due to caching delay
+	// a sosreport on the runList will not be run again
+	runList map[types.UID]struct{}
+	// list of jobs to run
+	jobToRunList map[types.UID]map[string]struct{} // will be jobToRunList[s.UID][nodeName]
+	// list of jobs to currently running
+	jobRunningList       map[types.UID]map[string]struct{} // will be jobToRunList[s.UID][nodeName]
+	imageName            string                            // name of the soreport job's image
+	sosreportCommand     string                            // command to run for the sosreport image
+	sosreportConcurrency int                               // command to run for the sosreport image
 }
 
 var log logr.Logger
@@ -104,7 +112,7 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	 A sosreport will not be run if:
 	 a) It is marked as Finished in the type
 	 b) It is marked as InProgress in the type
-	 c) It is on the runlist (the runlist avoids issues with caching delay)
+	 c) It is on the runList (the runList avoids issues with caching delay)
 	*/
 
 	// don't look at finished sosreports, ever
@@ -112,33 +120,45 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
-	// a sosreport is not yet running if its not on the runlist
+	// initialize maps to avoid assignment to entry in nil map
+	r.init()
+	// before we run this, read some configuration from configmap
+	r.setGlobalSosreportReconcilerConfiguration(sosreport, req)
+
+	// a sosreport is not yet running if its not on the runList
 	// and if its status.inProgress is false
-	_, inRunlist := r.runlist[sosreport.UID]
+	_, inRunlist := r.runList[sosreport.UID]
 	if !inRunlist && sosreport.Status.InProgress == false {
 		log.Info("Starting sosreport jobs")
 		var err error
-		if r.runlist == nil {
-			r.runlist = make(map[types.UID]struct{})
-		}
-		r.runlist[sosreport.UID] = struct{}{}
+		r.runList[sosreport.UID] = struct{}{}
 
-		// before we run this, read some configuration from configmap
-		r.updateSosreportImageNameAndCommand(sosreport, req)
-
-		sosreport.Status.InProgress, err = r.runSosreportJobs(sosreport, req)
+		// only schedule sosreports here
+		sosreport.Status.InProgress, err = r.scheduleSosreportJobs(sosreport, req)
 		if err != nil {
-			log.Error(err, "unable to run sosreport jobs")
+			log.Error(err, "unable to schedule sosreport jobs")
 			return ctrl.Result{}, err
 		}
 		log.Info("Updating sosreport status", "sosreport.Status.InProgress", sosreport.Status.InProgress)
 		r.updateStatus(sosreport)
 	} else {
-		done, err := r.sosreportJobsDone(sosreport, req)
+		// synchronize job running cache - in case this sosreport controller was restarted
+		err := r.synchronizeJobRunningCache(sosreport, req)
+		if err != nil {
+			log.Error(err, "Failed to synchronize job running cache")
+		}
+		// dequeue any jobs that are in running list and are done
+		err = r.dequeueSosreportJobsDone(sosreport, req)
 		if err != nil {
 			log.Error(err, "Failed to determine sosreport done state")
 		}
-		if done {
+		// run sosreport jobs from the jobToRunList and move them to running list
+		_, err = r.runSosreportJobs(sosreport, req)
+		if err != nil {
+			log.Error(err, "unable to run sosreport jobs")
+			return ctrl.Result{}, err
+		}
+		if r.isSosreportJobsDone(sosreport) {
 			log.Info("Sosreport generation done")
 			sosreport.Status.InProgress = false
 			sosreport.Status.Finished = true
@@ -147,6 +167,21 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	return ctrl.Result{}, nil
+}
+
+/*
+Initialize maps to avoid assignment to entry in nil map
+*/
+func (r *SosreportReconciler) init() {
+	if r.runList == nil {
+		r.runList = make(map[types.UID]struct{})
+	}
+	if r.jobToRunList == nil {
+		r.jobToRunList = make(map[types.UID]map[string]struct{})
+	}
+	if r.jobRunningList == nil {
+		r.jobRunningList = make(map[types.UID]map[string]struct{})
+	}
 }
 
 /*
@@ -167,9 +202,10 @@ func (r *SosreportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 This method reads custom configuration from a configmap that allows admins to overwrite the sosreport generation
 image as well as the sosreport command
 */
-func (r *SosreportReconciler) updateSosreportImageNameAndCommand(s *supportv1alpha1.Sosreport, req ctrl.Request) {
+func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *supportv1alpha1.Sosreport, req ctrl.Request) {
 	sosreportImage := DEFAULT_IMAGE_NAME
 	sosreportCommand := DEFAULT_SOSREPORT_COMMAND
+	sosreportConcurrency := DEFAULT_SOSREPORT_CONCURRENCY
 	cm, err := r.getSosreportConfigMap(GLOBAL_CONFIG_MAP_NAME, s, req)
 	if err == nil {
 		sosreportImageCm, ok := cm.Data["sosreport-image"]
@@ -180,11 +216,21 @@ func (r *SosreportReconciler) updateSosreportImageNameAndCommand(s *supportv1alp
 		if ok {
 			sosreportCommand = sosreportCommandCm
 		}
+		sosreportConcurrencyCm, ok := cm.Data["concurrency"]
+		if ok {
+			if ic, err := strconv.Atoi(sosreportConcurrencyCm); err == nil {
+				sosreportConcurrency = ic
+			} else {
+				log.Info("Cannot parse concurrency", "concurrency", sosreportConcurrencyCm)
+			}
+		}
 	}
 	log.Info("Using sosreport-image", "sosreport-image", sosreportImage)
 	r.imageName = sosreportImage
 	log.Info("Using sosreport-command", "sosreport-command", sosreportCommand)
 	r.sosreportCommand = sosreportCommand
+	log.Info("Using concurrency", "concurrency", sosreportConcurrency)
+	r.sosreportConcurrency = sosreportConcurrency
 }
 
 /*
@@ -266,6 +312,17 @@ func (r *SosreportReconciler) getSosreportSecret(s *supportv1alpha1.Sosreport, r
 }
 
 /*
+Update the "Sosreport" CR
+*/
+func (r *SosreportReconciler) update(s *supportv1alpha1.Sosreport) {
+	// update Sosreport resource
+	log.Info("Updating sosreport CR")
+	if err := r.Update(ctx, s); err != nil {
+		log.Info("unable to update Sosreport CR", "err", err)
+	}
+}
+
+/*
 Update the "Sosreport" CR's status
 */
 func (r *SosreportReconciler) updateStatus(s *supportv1alpha1.Sosreport) {
@@ -314,29 +371,42 @@ func (r *SosreportReconciler) getSosreportJobs(s *supportv1alpha1.Sosreport, req
 Go through all jobs that belong to this sosreport and check if they are done
 A job is done if isJobDone returns true. That happens if the job is either JobComplete or JobFailed
 */
-func (r *SosreportReconciler) sosreportJobsDone(s *supportv1alpha1.Sosreport, req ctrl.Request) (bool, error) {
+func (r *SosreportReconciler) dequeueSosreportJobsDone(s *supportv1alpha1.Sosreport, req ctrl.Request) error {
 	sosreportJobs, err := r.getSosreportJobs(s, req)
 	if err != nil {
-		log.Info("Error in sosreportJobsDone")
-		return false, err
-	}
-	if len(sosreportJobs.Items) == 0 {
-		log.Info("Sosreport list is empty. Not considering this as done.")
-		return false, nil
+		log.Info("Error in dequeueSosreportJobsDone")
+		return err
 	}
 	for _, sosreportJob := range sosreportJobs.Items {
 		log.Info("Inspecting sosreport job", "Name", sosreportJob.Name)
 		if done, _ := isJobDone(sosreportJob); !done {
 			log.Info("sosreport job is still running", "Name", sosreportJob.Name)
-			return false, nil
+		} else {
+			// delete from jobRunningList and report an event
+			if _, ok := r.jobRunningList[s.UID][sosreportJob.Spec.Template.Spec.NodeName]; ok {
+				r.recorder.Event(s,
+					corev1.EventTypeNormal,
+					"Sosreport finished",
+					"Sosreport "+sosreportJob.Spec.Template.Spec.NodeName+" finished",
+				)
+				delete(r.jobRunningList[s.UID], sosreportJob.Spec.Template.Spec.NodeName)
+			}
 		}
 	}
+
+	if j, err := json.Marshal(r.jobRunningList[s.UID]); err == nil {
+		if s.Annotations["job-running-list"] != string(j) {
+			s.Annotations["job-running-list"] = string(j)
+			r.update(s)
+		}
+	}
+
 	// log as an event for the sosreport
 	// TBD - individual logging per jobs - this is more complex as we should only log the event once
 	// per job. In the meantime, simply create an event when all jobs are done
-	r.recorder.Event(s, corev1.EventTypeNormal, "Sosreports finished", "All Sosreports finished")
+	// r.recorder.Event(s, corev1.EventTypeNormal, "Sosreports finished", "Sosreport batch finished")
 
-	return true, nil
+	return nil
 }
 
 /*
@@ -366,9 +436,9 @@ func isJobDone(j batchv1.Job) (bool, batchv1.JobConditionType) {
 }
 
 /*
-Run jobs for this sosreport on Nodes which match the NodeSelector.
+Schedule jobs for this sosreport on Nodes which match the NodeSelector.
 */
-func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req ctrl.Request) (bool, error) {
+func (r *SosreportReconciler) scheduleSosreportJobs(s *supportv1alpha1.Sosreport, req ctrl.Request) (bool, error) {
 	// implement loop through nodes that are matched by sosreport's NodeSelector
 	nodeList := &corev1.NodeList{}
 	log.Info("Using NodeSelector", "s.Spec.NodeSelector", s.Spec.NodeSelector)
@@ -386,25 +456,149 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req
 		return false, nil
 	}
 
+	nodeNameList := make(map[string]struct{})
+	for _, node := range nodeList.Items {
+		nodeNameList[node.Name] = struct{}{}
+	}
+
+	if j, err := json.Marshal(nodeNameList); err == nil {
+		// every sosreport can have its list of names to run on
+		r.jobToRunList[s.UID] = nodeNameList
+		if s.Annotations == nil {
+			s.Annotations = make(map[string]string)
+		}
+		s.Annotations["job-to-run-list"] = string(j)
+		r.update(s)
+	}
+
+	return true, nil
+}
+
+func (r *SosreportReconciler) isSosreportJobsDone(s *supportv1alpha1.Sosreport) bool {
+	toRunList, ok1 := r.jobToRunList[s.UID]
+	runningList, ok2 := r.jobRunningList[s.UID]
+	// we are done if either list does not exist or if either list is empty
+	isDone := (!ok1 || len(toRunList) == 0) &&
+		(!ok2 || len(runningList) == 0)
+
+	if isDone {
+		r.recorder.Event(s,
+			corev1.EventTypeNormal,
+			"Sosreports finished",
+			"All Sosreports finished",
+		)
+	}
+
+	return isDone
+}
+
+/*
+Synchronize annotation with cache - in case the sosreport operator is restarted
+*/
+func (r *SosreportReconciler) synchronizeJobRunningCache(s *supportv1alpha1.Sosreport, req ctrl.Request) error {
+	// the sosreport operator might have been restarted in the middle of a sosreport run
+	if _, inRunList := r.jobToRunList[s.UID]; !inRunList {
+		log.Info("Current jobToRunList for this job does not exist. Trying to load jobToRunList from s.Annotations[\"job-to-run-list\"]")
+		if annotationJson, annotationExists := s.Annotations["job-to-run-list"]; annotationExists {
+			log.Info("Annotation exists. Updating r.jobToRunList[s.UID]")
+			annotationData := make(map[string]struct{})
+			if err := json.Unmarshal([]byte(annotationJson), &annotationData); err == nil {
+				r.jobToRunList[s.UID] = annotationData
+				log.Info("Value is", "r.jobToRunList[s.UID]", r.jobToRunList[s.UID])
+			} else {
+				log.Info("Failed to unmarshal annotation", "s.Annotations[\"job-to-run-list\"]", "annotationJson")
+				return err
+			}
+		}
+	}
+
+	// the sosreport operator might have been restarted in the middle of a sosreport run
+	if _, inRunList := r.jobRunningList[s.UID]; !inRunList {
+		log.Info("Current jobRunningList for this job does not exist. Trying to load jobRunningList from s.Annotations[\"job-running-list\"]")
+		if annotationJson, annotationExists := s.Annotations["job-running-list"]; annotationExists {
+			log.Info("Annotation exists. Updating r.jobRunningList[s.UID]")
+			annotationData := make(map[string]struct{})
+			if err := json.Unmarshal([]byte(annotationJson), &annotationData); err == nil {
+				r.jobRunningList[s.UID] = annotationData
+				log.Info("Value is", "r.jobRunningList[s.UID]", r.jobRunningList[s.UID])
+			} else {
+				log.Info("Failed to unmarshal annotation", "s.Annotations[\"job-running-list\"]", "annotationJson")
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+/*
+Run jobs for this sosreport - get jobs from the jobToRunList
+*/
+func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req ctrl.Request) (bool, error) {
+	// implement loop through nodes that are matched by sosreport's NodeSelector
+	nodeList := r.jobToRunList[s.UID]
 	// merge the ConfigMap and Secret and retrieve them as a map[string]string
 	configurationMap := r.getEnvConfigurationFromConfigMapAndSecret(s, req)
 
-	for _, node := range nodeList.Items {
-		nodeName := node.Name
+	maxNewSosreports := r.sosreportConcurrency - len(r.jobRunningList[s.UID])
+	log.Info("runSosreportJobs",
+		"r.sosreportConcurrency", r.sosreportConcurrency,
+		"len(r.jobRunningList[s.UID])", len(r.jobRunningList[s.UID]))
+	i := 0
+	var newRunningNodes []string
+	for nodeName, _ := range nodeList {
+		if i >= maxNewSosreports {
+			break
+		}
+
 		// Get a sosreport on this node
 		job, err := r.jobForSosreport(nodeName, configurationMap, s)
 		if err != nil {
-			return false, err
+			log.Info("Could generate job", "nodeName", nodeName, "err", err)
+			continue
 		}
 		// Create the job
 		log.Info("Creating new job", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
 		err = r.Create(ctx, job)
 		if err != nil {
 			log.Error(err, "Failed to create new Job", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
-			return false, err
+			continue
 		}
 		// log this job creation as an event for the sosreport
 		r.recorder.Event(s, corev1.EventTypeNormal, "Sosreport job started", "Sosreport started on "+nodeName)
+
+		// remember which job switched to running
+		newRunningNodes = append(newRunningNodes, nodeName)
+
+		//increase the counter
+		i++
+	}
+
+	// move a running sosreport from jobToRunList to jobRunningList
+	if r.jobRunningList[s.UID] == nil {
+		r.jobRunningList[s.UID] = make(map[string]struct{})
+	}
+	for _, nodeName := range newRunningNodes {
+		r.jobRunningList[s.UID][nodeName] = struct{}{}
+		delete(r.jobToRunList[s.UID], nodeName)
+	}
+
+	// update the CR annotation
+	doUpdate := false
+	if j, err := json.Marshal(r.jobToRunList[s.UID]); err == nil {
+		if s.Annotations["job-to-run-list"] != string(j) {
+			s.Annotations["job-to-run-list"] = string(j)
+			doUpdate = true
+		}
+	}
+	if j, err := json.Marshal(r.jobRunningList[s.UID]); err == nil {
+		if s.Annotations["job-running-list"] != string(j) {
+			s.Annotations["job-running-list"] = string(j)
+			doUpdate = true
+		}
+	}
+	if doUpdate {
+		r.update(s)
 	}
 
 	return true, nil
