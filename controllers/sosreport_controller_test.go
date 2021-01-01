@@ -14,7 +14,7 @@ package controllers
 
 import (
 	"context"
-	"fmt"
+	// "fmt"
 	//"reflect"
 	"time"
 
@@ -65,6 +65,36 @@ var _ = Describe("Sosreport controller", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, masterNode)).Should(Succeed())
+
+				By("Creating a worker node")
+				workerNodeOne := &corev1.Node{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Node",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-0",
+						Labels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, workerNodeOne)).Should(Succeed())
+
+				By("Creating another worker node")
+				workerNodeTwo := &corev1.Node{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Node",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-1",
+						Labels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, workerNodeTwo)).Should(Succeed())
 			}
 
 			By("By creating a new ConfigMap")
@@ -112,6 +142,11 @@ var _ = Describe("Sosreport controller", func() {
 					Name:      SosreportName,
 					Namespace: SosreportNamespace,
 				},
+				Spec: supportv1alpha1.SosreportSpec{
+					NodeSelector: map[string]string{
+						"node-role.kubernetes.io/worker": "",
+					},
+				},
 			}
 			Expect(k8sClient.Create(ctx, sosreport)).Should(Succeed())
 
@@ -138,6 +173,32 @@ var _ = Describe("Sosreport controller", func() {
 				}
 				// fmt.Fprintf(GinkgoWriter, "Test: %v\n", createdSosreport.Status.InProgress)
 				return createdSosreport.Status.InProgress
+			}, timeout, interval).Should(BeTrue())
+
+			By("By making sure that the Sosreport has a job in the job-to-run-list")
+			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
+			Eventually(func() bool {
+				// We need to retrieve a new copy of the Sosreport object at each try
+				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
+				if err != nil {
+					return false
+				}
+				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-to-run-list\"]: %v\n", createdSosreport.Annotations["job-to-run-list"])
+				return createdSosreport.Annotations["job-to-run-list"] == "{\"worker-1\":{}}" ||
+					createdSosreport.Annotations["job-to-run-list"] == "{\"worker-0\":{}}"
+			}, timeout, interval).Should(BeTrue())
+
+			By("By making sure that the Sosreport has a job in the job-running-list")
+			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
+			Eventually(func() bool {
+				// We need to retrieve a new copy of the Sosreport object at each try
+				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
+				if err != nil {
+					return false
+				}
+				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-running-list\"]: %v\n", createdSosreport.Annotations["job-running-list"])
+				return createdSosreport.Annotations["job-running-list"] == "{\"worker-0\":{}}" ||
+					createdSosreport.Annotations["job-running-list"] == "{\"worker-1\":{}}"
 			}, timeout, interval).Should(BeTrue())
 
 			By("Retrieving a list of all jobs that belong to this sosreport")
@@ -173,7 +234,70 @@ var _ = Describe("Sosreport controller", func() {
 						Type:   batchv1.JobComplete,
 						Status: corev1.ConditionTrue,
 					})
-				fmt.Fprintf(GinkgoWriter, "Updating job: %v\n", job.Name)
+				// fmt.Fprintf(GinkgoWriter, "Updating job: %v\n", job.Name)
+				err := k8sClient.Status().Update(ctx, &job)
+				Expect(err).ShouldNot(HaveOccurred())
+			}
+
+			By("By making sure that the Sosreport has no job in the job-to-run-list")
+			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
+			Eventually(func() bool {
+				// We need to retrieve a new copy of the Sosreport object at each try
+				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
+				if err != nil {
+					return false
+				}
+				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-to-run-list\"]: %v\n", createdSosreport.Annotations["job-to-run-list"])
+				return createdSosreport.Annotations["job-to-run-list"] == "{}"
+			}, timeout, interval).Should(BeTrue())
+
+			By("By making sure that the Sosreport has a job in the job-running-list")
+			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
+			Eventually(func() bool {
+				// We need to retrieve a new copy of the Sosreport object at each try
+				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
+				if err != nil {
+					return false
+				}
+				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-running-list\"]: %v\n", createdSosreport.Annotations["job-running-list"])
+				return createdSosreport.Annotations["job-running-list"] == "{\"worker-1\":{}}" ||
+					createdSosreport.Annotations["job-running-list"] == "{\"worker-0\":{}}"
+			}, timeout, interval).Should(BeTrue())
+
+			By("Retrieving a list of all jobs that belong to this sosreport")
+			allSosreportJobs = &batchv1.JobList{}
+			controllerSosreportJobs = &batchv1.JobList{}
+
+			err = k8sClient.List(ctx, allSosreportJobs, client.InNamespace(SosreportNamespace))
+			Expect(err).ShouldNot(HaveOccurred())
+
+			for _, sosreportJob := range allSosreportJobs.Items {
+				// https://book.kubebuilder.io/cronjob-tutorial/controller-implementation.html
+				ownerReference := jobGetController(sosreportJob)
+				// there may be other jobs in this namespace with no owner
+				if ownerReference == nil {
+					continue
+				}
+				//log.Info("Inspecting sosreport job's owner",
+				//	"Name", sosreportJob.Name,
+				//	"ownerReference.Kind", ownerReference.Kind,
+				//	"ownerReference.UID", ownerReference.UID,
+				//	"sosreport.UID", s.UID)
+				if ownerReference.Kind == "Sosreport" && ownerReference.UID == createdSosreport.UID {
+					//log.Info("ownerReference matches sosreport", "Kind", ownerReference.Kind,
+					//	"UID", ownerReference.UID)
+					controllerSosreportJobs.Items = append(controllerSosreportJobs.Items, sosreportJob)
+				}
+			}
+
+			By("Setting all jobs to done")
+			for _, job := range controllerSosreportJobs.Items {
+				job.Status.Conditions = append(job.Status.Conditions,
+					batchv1.JobCondition{
+						Type:   batchv1.JobComplete,
+						Status: corev1.ConditionTrue,
+					})
+				// fmt.Fprintf(GinkgoWriter, "Updating job: %v\n", job.Name)
 				err := k8sClient.Status().Update(ctx, &job)
 				Expect(err).ShouldNot(HaveOccurred())
 			}
