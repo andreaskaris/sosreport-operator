@@ -111,7 +111,7 @@ var _ = Describe("Sosreport controller", func() {
 				},
 				Data: map[string]string{
 					"sosreport-image":   "kind:5000/sosreport-centos:latest",
-					"sosreport-command": "bash -x /entrypoint.sh",
+					"sosreport-command": "bash -x /scripts/entrypoint.sh",
 					"simulation-mode":   "true",
 					"debug":             "true",
 				},

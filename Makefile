@@ -90,7 +90,11 @@ podman-push:
 
 # Build the docker image with buildah
 podman-build-centos-sosreport:
-	cd containers/sosreport-centos && buildah bud --format docker -t ${IMG} .
+	rm -Rf containers/sosreport-centos/scripts ; \
+	cp -a containers/scripts containers/sosreport-centos && \
+	cd containers/sosreport-centos && buildah bud --format docker -t ${IMG} . ; \
+	cd - ; \
+	rm -Rf containers/sosreport-centos/scripts
 
 # Push the docker image
 podman-push-centos-sosreport:

@@ -35,13 +35,13 @@ spec:
         - name: RH_PASSWORD
           value: "password"
         - name: UPLOAD_SOSREPORT
-          value: false
+          value: "false"
         - name: DEBUG
-          value: false
+          value: "false"
         - name: SIMULATION_MODE
-          value: true
+          value: "true"
         - name: OBFUSCATE
-          value: false
+          value: "false"
         command:
           - "sleep"
           - "3600"

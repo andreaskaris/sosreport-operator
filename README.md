@@ -4,7 +4,7 @@
 
 ### Building the sosreport-centos images for a local registry
 
-The operator requires a special image to run the sosreports. Build this 
+The operator requires a special image to run the sosreport jobs. Build this 
 image with:
 ~~~
 make podman-build-centos-sosreport IMG=kind:5000/sosreport-centos
@@ -76,7 +76,7 @@ metadata:
   # namespace: sosreport-operator-system
 data:
   sosreport-image: "kind:5000/sosreport-centos:latest"
-  sosreport-command: "bash -x /entrypoint.sh"
+  sosreport-command: "bash -x /scripts/entrypoint.sh"
   simulation-mode: "true"
   debug: "true"
 ~~~

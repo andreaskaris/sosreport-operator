@@ -5,7 +5,8 @@ metadata:
   # namespace: sosreport-operator-system
 data:
   sosreport-image: "kind:5000/sosreport-centos:latest"
-  sosreport-command: "bash -x /entrypoint.sh"
+  sosreport-command: "bash -x /scripts/entrypoint.sh"
   simulation-mode: "true"
   debug: "true"
   concurrency: "1"
+  log-level: "0"
