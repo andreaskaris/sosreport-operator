@@ -30,21 +30,27 @@ spec:
         env:
         - name: CASE_NUMBER
           value: "00000000"
-        - name: RH_USERNAME
+        - name: USERNAME
           value: "test@example.com"
-        - name: RH_PASSWORD
+        - name: PASSWORD
           value: "password"
-        - name: UPLOAD_SOSREPORT
-          value: "false"
+        - name: UPLOAD_METHOD
+          value: "none"
         - name: DEBUG
           value: "false"
         - name: SIMULATION_MODE
           value: "true"
         - name: OBFUSCATE
           value: "false"
+        - name: NFS_SHARE
+          value: "kind:/nfs"
+        - name: NFS_OPTIONS
+          value: ""
+        - name: FTP_SERVER
+          value: "ftp://kind"
         command:
           - "sleep"
-          - "3600"
+          - "infinity"
         securityContext:
           privileged: true
         volumeMounts:

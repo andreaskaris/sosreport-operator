@@ -52,7 +52,7 @@ const (
 	UPLOAD_CONFIG_MAP_NAME        = "sosreport-upload-configuration"       // name of the upload ConfigMap
 	UPLOAD_SECRET_NAME            = "sosreport-upload-secret"              // name of the Secret for upload authentication
 	DEFAULT_IMAGE_NAME            = "quay.io/akaris/sosreport-centos:main" // to point to final version of sosreport IMAGE
-	DEFAULT_SOSREPORT_COMMAND     = "bash /scripts/entrypoint.sh"                  // to point to the entrypoint
+	DEFAULT_SOSREPORT_COMMAND     = "bash /scripts/entrypoint.sh"          // to point to the entrypoint
 	DEFAULT_SOSREPORT_CONCURRENCY = 1
 	DEFAULT_LOGLEVEL              = 1
 )
@@ -251,17 +251,20 @@ This method reads custom configuration from a configmap and secret and populates
 */
 func (r *SosreportReconciler) getEnvConfigurationFromConfigMapAndSecret(s *supportv1alpha1.Sosreport, req ctrl.Request) map[string]string {
 	keyMapUploadCm := map[string]string{
-		"case-number":      "CASE_NUMBER",
-		"upload-sosreport": "UPLOAD_SOSREPORT",
-		"obfuscate":        "OBFUSCATE",
+		"upload-method": "UPLOAD_METHOD",
+		"case-number":   "CASE_NUMBER",
+		"obfuscate":     "OBFUSCATE",
+		"nfs-share":     "NFS_SHARE",
+		"nfs-options":   "NFS_OPTIONS",
+		"ftp-server":    "FTP_SERVER",
 	}
 	keyMapGlobalCm := map[string]string{
 		"simulation-mode": "SIMULATION_MODE",
 		"debug":           "DEBUG",
 	}
 	keyMapSecret := map[string]string{
-		"username": "RH_USERNAME",
-		"password": "RH_PASSWORD",
+		"username": "USERNAME",
+		"password": "PASSWORD",
 	}
 
 	configurationMap := make(map[string]string)
@@ -289,7 +292,8 @@ func (r *SosreportReconciler) getEnvConfigurationFromConfigMapAndSecret(s *suppo
 		for k, v := range secret.Data {
 			// username and password shall be provided by secret
 			if envK, ok := keyMapSecret[k]; ok {
-				configurationMap[envK] = string(v)
+				// remove newlines - found ending newlines while testing
+				configurationMap[envK] = strings.Trim(string(v), "\n")
 			}
 		}
 	}

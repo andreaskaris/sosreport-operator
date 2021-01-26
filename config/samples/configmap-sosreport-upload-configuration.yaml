@@ -4,6 +4,9 @@ metadata:
   name: sosreport-upload-configuration
   # namespace: sosreport-operator-system
 data:
-  case-number: "00000000"
-  upload-sosreport: "false"
-  obfuscate: "false"
+  upload-method: "none" # case|ftp|nfs
+  case-number: "00000000" # must be set for upload-method "case"
+  obfuscate: "false" # options for upload-method "case"
+  nfs-share: "kind:/nfs" # must be set for nfs
+  nfs-options: "" # optional for nfs
+  ftp-server: "ftp://kind"
