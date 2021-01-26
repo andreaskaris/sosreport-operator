@@ -1,31 +1,28 @@
-## Creating sosreports
+## Creating Sosreports
 
-### Creating sosreports on all systems
+### Creating Sosreports on all systems
 
-To run sosreports on all systems, simply apply the following configuration:
+To run Sosreports on all systems, simply apply the following configuration:
 ~~~
 apiVersion: support.openshift.io/v1alpha1
 kind: Sosreport
 metadata:
   name: sosreport-sample
-#spec:
-#  nodeSelector:
-#    type: worker
 ~~~
 
-In order to avoid overloading the cluster, the Sosreport Operator will run a specific number of sosreports at a time, by default 1. 
+In order to avoid overloading the cluster, the Sosreport Operator will run a specific number of Sosreports at a time, by default 1. 
 
 Sosreports will be stored on each node in /host/var/tmp. 
 
 > The Sosreport Operator does currently not take care of cleanups.
 
-### Creating sosreports on a subset of nodes
+### Creating Sosreports on a subset of nodes
 
-Sosreports can easily be executes on a subset of nodes.
+Sosreports can easily be executed on a subset of nodes.
 
-#### Run sosreports only on nodes with the worker role
+#### Run Sosreports only on nodes with a specific role
 
-In order to generate sosreports on all master nodes:
+For example, in order to generate Sosreports on all master nodes:
 ~~~
 apiVersion: support.openshift.io/v1alpha1
 kind: Sosreport
@@ -36,9 +33,9 @@ spec:
     node-role.kubernetes.io/master: ""
 ~~~
 
-#### Run sosreports on a specific node
+#### Run Sosreports on a specific node
 
-To run sosreports on the node with hostname `worker-0`, create the following sosreport:
+For example, to run Sosreports on the node with hostname `worker-0`, create the following Sosreport:
 ~~~
 apiVersion: support.openshift.io/v1alpha1
 kind: Sosreport
@@ -52,7 +49,7 @@ spec:
 ## Customizing Sosreport configuration via ConfigMap
 
 For specific purposes, it is possible to override a few settings to make it easier to run local images and custom commands. Create the `sosreport-configuration` ConfigMap to set a few key settings:
-~~
+~~~
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -82,7 +79,7 @@ data:
 
 ## Configuring upload settings
 
-The sosreport operator has an automatic upload feature which can be configured via ConfigMap `sosreport-upload-configuration`.
+The Sosreport operator has an automatic upload feature which can be configured via ConfigMap `sosreport-upload-configuration`.
 
 > **Note:** This ConfigMap must be in the same namespace as the `Sosreport` resource
 > **Note:** In all cases, the Sosreport operator will maintain a local copy of each Sosreport file
