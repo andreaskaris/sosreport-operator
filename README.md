@@ -1,5 +1,7 @@
 # sosreport-operator
 
+This guide contains building and installatoin instructions. See [USERGUIDE.md](USERGUIDE.md) for the user guide.
+
 ## Building and testing locally 
 
 ### Building the sosreport-centos images for a local registry
@@ -63,50 +65,6 @@ Example custom resources can be deployed and undeployed with:
 ~~~
 make deploy-examples
 make undeploy-examples
-~~~
-
-## Customizing the sosreport configuration via ConfigMap
-
-For testing purposes, it is possible to override a few settings to make it easier to run local images and custom commands. Modify the `sosreport-configuration` ConfigMap to set a few key settings:
-~~~
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sosreport-global-configuration
-  # namespace: sosreport-operator-system
-data:
-  sosreport-image: "kind:5000/sosreport-centos:latest"
-  sosreport-command: "bash -x /scripts/entrypoint.sh"
-  simulation-mode: "true"
-  debug: "true"
-~~~
-
-## Configuring upload settings
-
-The sosreport operator has an automatic upload feature which can be configured via ConfigMap:
-~~~
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sosreport-upload-configuration
-  # namespace: sosreport-operator-system
-data:
-  case-number: "00000000"
-  upload-sosreport: "false"
-  obfuscate: "false"
-~~~
-
-In order to upload images, you will also have to provide your Red Hat account credentials in form of a secret:
-~~~
-apiVersion: v1
-kind: Secret
-metadata:
-  name: sosreport-upload-secret
-  # namespace: sosreport-operator-system
-type: kubernetes.io/basic-auth
-stringData:
-  username: test@example.com
-  password: password
 ~~~
 
 ## Generating OLM bundle images
