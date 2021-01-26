@@ -48,7 +48,14 @@ spec:
 
 ## Customizing Sosreport configuration via ConfigMap
 
-For specific purposes, it is possible to override a few settings to make it easier to run local images and custom commands. Create the `sosreport-configuration` ConfigMap to set a few key settings:
+For specific purposes, it is possible to override a few settings to make it easier to run local images and custom commands. These parameters are explained in `For testing only`.
+
+Other parameters can be used in production environments. See `For real world deployments` for these.
+
+Create the `sosreport-global-configuration` ConfigMap to set a few key settings.
+
+> **Note:** This ConfigMap must be in the same namespace as the `Sosreport` resource
+
 ~~~
 apiVersion: v1
 kind: ConfigMap
@@ -63,13 +70,11 @@ data:
   concurrency: "1"
 ~~~
 
-> **Note:** This ConfigMap must be in the same namespace as the `Sosreport` resource
-
 ### For testing only
 
 * `sosreport-image`: Use a custom image for the Sosreport jobs
 * `sosreport-command`: Use a custom entrypoing command for Sosreport jobs
-* `simulation-mode`: Generate Sosreports locally in the container instead of on the node (required for `kind`)
+* `simulation-mode`: Generate Sosreports locally in the container instead of on the node (required for testing in `kind` environments)
 * `debug`: Set Sosreport jobs' scripts to debug mode
 
 ### For real world deployments
@@ -82,6 +87,7 @@ data:
 The Sosreport operator has an automatic upload feature which can be configured via ConfigMap `sosreport-upload-configuration`.
 
 > **Note:** This ConfigMap must be in the same namespace as the `Sosreport` resource
+
 > **Note:** In all cases, the Sosreport operator will maintain a local copy of each Sosreport file
 
 ### Uploading directly to a case via RH support tool
@@ -117,7 +123,7 @@ stringData:
 * `username`: Red Hat username
 * `password`: Red Hat password
 
-> **Note:** Passwords which are stored in Kubernetes `Secrets` can be seen by any user who has the administrative rights to view secrets. The Username and Password will be passed to the Jobs and Pods via environment variables and will be in clear.
+> **Note:** Passwords which are stored in Kubernetes `Secrets` can be seen by any user who has the administrative rights to view `Secrets`. The Username and Password will be passed to the Jobs and Pods via environment variables and will be in clear text and are visible in the Pods' definitions.
 
 ### Upload to FTP
 
@@ -150,7 +156,8 @@ stringData:
 * `username`: FTP username
 * `password`: FTP password
 
-> **Note:** Passwords which are stored in Kubernetes `Secrets` can be seen by any user who has the administrative rights to view secrets. The Username and Password will be passed to the Jobs and Pods via environment variables and will be in clear.
+> **Note:** Passwords which are stored in Kubernetes `Secrets` can be seen by any user who has the administrative rights to view `Secrets`. The Username and Password will be passed to the Jobs and Pods via environment variables and will be in clear text and are visible in the Pods' definitions.
+
 > **Note:** FTPS was not tested and will more than likely not work at the moment.
 
 ### Upload to NFS
