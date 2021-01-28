@@ -154,6 +154,12 @@ var _ = Describe("Sosreport controller", func() {
 					NodeSelector: map[string]string{
 						"node-role.kubernetes.io/worker": "",
 					},
+					Tolerations: []corev1.Toleration{
+						corev1.Toleration{
+							Key:    "node-role.kubernetes.io/master",
+							Effect: corev1.TaintEffectNoSchedule,
+						},
+					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, sosreport)).Should(Succeed())

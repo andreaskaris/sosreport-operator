@@ -3,6 +3,11 @@ kind: Sosreport
 metadata:
   name: sosreport-sample
   #namespace: sosreport-operator-system
-#spec:
+spec:
+   tolerations:
+   - key: node-role.kubernetes.io/master
+     effect: NoSchedule
 #  nodeSelector:
 #    type: worker
+#  nodeSelector:
+#    kubernetes.io/hostname: kind-worker2

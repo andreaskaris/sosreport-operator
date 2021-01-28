@@ -20,6 +20,7 @@ import (
 	// appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"context"
@@ -197,6 +198,7 @@ func (r *SosreportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&supportv1alpha1.Sosreport{}).
 		Owns(&batchv1.Job{}).
+		// Owns(&corev1.PersistentVolumeClaim{}).
 		Complete(r)
 }
 
@@ -400,13 +402,14 @@ func (r *SosreportReconciler) dequeueSosreportJobsDone(s *supportv1alpha1.Sosrep
 			log.V(r.sosreportLogLevel).Info("sosreport job is still running", "Name", sosreportJob.Name)
 		} else {
 			// delete from jobRunningList and report an event
-			if _, ok := r.jobRunningList[s.UID][sosreportJob.Spec.Template.Spec.NodeName]; ok {
+			log.V(r.sosreportLogLevel).Info("Delete job from jobRunningList", "sosreportJob.Annotations[\"nodeName\"]", sosreportJob.Annotations["nodeName"], "r.jobRunningList[s.UID]", r.jobRunningList[s.UID])
+			if _, ok := r.jobRunningList[s.UID][sosreportJob.Annotations["nodeName"]]; ok {
 				r.recorder.Event(s,
 					corev1.EventTypeNormal,
 					"Sosreport finished",
-					"Sosreport "+sosreportJob.Spec.Template.Spec.NodeName+" finished",
+					"Sosreport "+sosreportJob.Annotations["nodeName"]+" finished",
 				)
-				delete(r.jobRunningList[s.UID], sosreportJob.Spec.Template.Spec.NodeName)
+				delete(r.jobRunningList[s.UID], sosreportJob.Annotations["nodeName"])
 			}
 		}
 	}
@@ -569,11 +572,19 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req
 		}
 
 		// Get a sosreport on this node
-		job, err := r.jobForSosreport(nodeName, configurationMap, s)
+		job, pvc, err := r.jobForSosreport(nodeName, configurationMap, s)
 		if err != nil {
 			log.Error(err, "Could not generate job", "nodeName", nodeName, "err", err)
 			continue
 		}
+		// Create the pvc
+		log.V(r.sosreportLogLevel).Info("Creating new PVC", "Job.Namespace", job.Namespace, "Job.Name", pvc.Name)
+		err = r.Create(ctx, pvc)
+		if err != nil {
+			log.Error(err, "Failed to create new PVC", "Job.Namespace", job.Namespace, "Job.Name", pvc.Name)
+			continue
+		}
+
 		// Create the job
 		log.V(r.sosreportLogLevel).Info("Creating new job", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
 		err = r.Create(ctx, job)
@@ -638,15 +649,34 @@ func mapToEnvVarArr(configurationMap map[string]string) []corev1.EnvVar {
 /*
 Return a single job
 */
-func (r *SosreportReconciler) jobForSosreport(nodeName string, environmentMap map[string]string, s *supportv1alpha1.Sosreport) (*batchv1.Job, error) {
+func (r *SosreportReconciler) jobForSosreport(nodeName string, environmentMap map[string]string, s *supportv1alpha1.Sosreport) (*batchv1.Job, *corev1.PersistentVolumeClaim, error) {
 	layout := "20060102150405"
 	jobName := fmt.Sprintf("%s-%s-%s", s.Name, nodeName, time.Now().Format(layout))
+	pvcName := fmt.Sprintf("%s-pvc", jobName)
 	labels := r.labelsForSosreportJob(s.Name)
+
+	storageClassName := "standard"
+	pvc := &corev1.PersistentVolumeClaim{
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteOnce,
+			},
+			StorageClassName: &storageClassName,
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resourcev1.MustParse("10Gi"),
+				},
+			},
+		},
+	}
+	pvc.Name = pvcName
+	pvc.Namespace = s.Namespace
+	pvc.Labels = labels
 
 	// read job dynamically from template
 	job, err := r.jobFromTemplate("sosreport.yaml")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// set this job's specific fields
 	job.ObjectMeta = metav1.ObjectMeta{
@@ -658,17 +688,68 @@ func (r *SosreportReconciler) jobForSosreport(nodeName string, environmentMap ma
 	job.Spec.Template.ObjectMeta = metav1.ObjectMeta{
 		Labels: labels,
 	}
-	job.Spec.Template.Spec.NodeName = nodeName
+
+	job.Spec.Template.Spec.Tolerations = s.Spec.Tolerations
+	// This used to be:
+	// job.Spec.Template.Spec.NodeName = nodeName
+	// explanation for why this does not work with PVCs is here:
+	// https://github.com/openebs/openebs/issues/2915#issuecomment-623135043
+	// Using Affinity also will make Taints and Tolerations work
+	job.Spec.Template.Spec.Affinity = &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					corev1.NodeSelectorTerm{
+						MatchExpressions: []corev1.NodeSelectorRequirement{
+							corev1.NodeSelectorRequirement{
+								Key:      "kubernetes.io/hostname",
+								Operator: corev1.NodeSelectorOpIn,
+								Values: []string{
+									nodeName,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	// required for dequeuing from the run list
+	job.Annotations["nodeName"] = nodeName
+
+	pvcVolume := corev1.Volume{}
+	pvcVolume.Name = pvc.Name
+	pvcVolume.VolumeSource = corev1.VolumeSource{
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+			ClaimName: pvcName,
+		},
+	}
+	job.Spec.Template.Spec.Volumes = append(
+		job.Spec.Template.Spec.Volumes,
+		pvcVolume,
+	)
+
 	job.Spec.Template.Spec.Containers[0].Image = r.imageName
 	job.Spec.Template.Spec.Containers[0].Name = jobName
 	job.Spec.Template.Spec.Containers[0].Command = strings.Split(r.sosreportCommand, " ")
 
 	job.Spec.Template.Spec.Containers[0].Env = mapToEnvVarArr(environmentMap)
 
+	job.Spec.Template.Spec.Containers[0].VolumeMounts = append(
+		job.Spec.Template.Spec.Containers[0].VolumeMounts,
+		corev1.VolumeMount{
+			Name:      pvcName,
+			MountPath: "/pv",
+		},
+	)
+
+	// Set ownerReferences
+	// Set Sosreport instance as the owner of this pvc
+	ctrl.SetControllerReference(s, pvc, r.Scheme)
 	// Set Sosreport instance as the owner of this job
 	ctrl.SetControllerReference(s, job, r.Scheme)
 
-	return job, nil
+	return job, pvc, nil
 }
 
 /*
