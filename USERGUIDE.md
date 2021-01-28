@@ -16,6 +16,22 @@ Sosreports will be stored on each node in /host/var/tmp.
 
 > The Sosreport Operator does currently not take care of cleanups.
 
+### Adding Tolerations to Sosreports
+
+Sosreport jobs will respect Node Taints. One can work around this by configuring tolerations.
+
+For example, in order to spawn Sosreports on master nodes with a `NoSchedule` taint:
+~~~
+apiVersion: support.openshift.io/v1alpha1
+kind: Sosreport
+metadata:
+  name: sosreport-sample
+spec:
+   tolerations:
+   - key: node-role.kubernetes.io/master
+     effect: NoSchedule
+~~~
+
 ### Creating Sosreports on a subset of nodes
 
 Sosreports can easily be executed on a subset of nodes.
@@ -68,6 +84,8 @@ data:
   debug: "true"
   log-level: "0"
   concurrency: "1"
+  pvc-storage-class: "standard"
+  pvc-capacity: "5Gi"
 ~~~
 
 ### For testing only
@@ -81,6 +99,8 @@ data:
 
 * `log-level`: Set log-level of log-messages. Currently, the lower the log-level (min `0`), the more verbose
 * `concurrency`: Set number of concurrent Sosreports. The default is 1 and this should not be raised too high.
+* `pvc-storage-class`: Name of PVC storage class
+* `pvc-capacity`: Name of PVC capacity
 
 ## Configuring upload settings
 

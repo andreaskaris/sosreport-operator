@@ -56,6 +56,7 @@ const (
 	DEFAULT_SOSREPORT_COMMAND     = "bash /scripts/entrypoint.sh"          // to point to the entrypoint
 	DEFAULT_SOSREPORT_CONCURRENCY = 1
 	DEFAULT_LOGLEVEL              = 1
+	DEFAULT_PVC_SIZE              = "10Gi"
 )
 
 // SosreportReconciler reconciles a Sosreport object
@@ -75,6 +76,8 @@ type SosreportReconciler struct {
 	sosreportCommand     string                            // command to run for the sosreport image
 	sosreportConcurrency int                               // command to run for the sosreport image
 	sosreportLogLevel    int
+	pvcStorageClass      string
+	pvcCapacity          string
 }
 
 var log logr.Logger
@@ -211,6 +214,9 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 	sosreportCommand := DEFAULT_SOSREPORT_COMMAND
 	sosreportConcurrency := DEFAULT_SOSREPORT_CONCURRENCY
 	sosreportLogLevel := DEFAULT_LOGLEVEL
+	pvcStorageClass := ""
+	pvcCapacity := DEFAULT_PVC_SIZE
+
 	cm, err := r.getSosreportConfigMap(GLOBAL_CONFIG_MAP_NAME, s, req)
 	if err == nil {
 		sosreportLogLevelCm, ok := cm.Data["log-level"]
@@ -237,15 +243,27 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 				log.V(DEFAULT_LOGLEVEL).Info("Cannot parse concurrency", "concurrency", sosreportConcurrencyCm)
 			}
 		}
+		pvcStorageClassCm, ok := cm.Data["pvc-storage-class"]
+		if ok {
+			pvcStorageClass = pvcStorageClassCm
+		}
+		pvcCapacityCm, ok := cm.Data["pvc-capacity"]
+		if ok {
+			pvcCapacity = pvcCapacityCm
+		}
 	}
-	log.V(DEFAULT_LOGLEVEL).Info("Using concurrency", "concurrency", sosreportConcurrency)
+	log.V(DEFAULT_LOGLEVEL).Info("Setting loglevel to", "sosreportLogLevel", sosreportLogLevel)
 	r.sosreportLogLevel = sosreportLogLevel
-	log.V(DEFAULT_LOGLEVEL).Info("Using sosreport-image", "sosreport-image", sosreportImage)
+	log.V(r.sosreportLogLevel).Info("Using sosreport-image", "sosreport-image", sosreportImage)
 	r.imageName = sosreportImage
-	log.V(DEFAULT_LOGLEVEL).Info("Using sosreport-command", "sosreport-command", sosreportCommand)
+	log.V(r.sosreportLogLevel).Info("Using sosreport-command", "sosreport-command", sosreportCommand)
 	r.sosreportCommand = sosreportCommand
-	log.V(DEFAULT_LOGLEVEL).Info("Using concurrency", "concurrency", sosreportConcurrency)
+	log.V(r.sosreportLogLevel).Info("Using concurrency", "concurrency", sosreportConcurrency)
 	r.sosreportConcurrency = sosreportConcurrency
+	log.V(r.sosreportLogLevel).Info("PVC storage class", "pvcStorageClass", pvcStorageClass)
+	r.pvcStorageClass = pvcStorageClass
+	log.V(r.sosreportLogLevel).Info("PVC capacity", "pvcCapacity", pvcCapacity)
+	r.pvcCapacity = pvcCapacity
 }
 
 /*
@@ -655,16 +673,19 @@ func (r *SosreportReconciler) jobForSosreport(nodeName string, environmentMap ma
 	pvcName := fmt.Sprintf("%s-pvc", jobName)
 	labels := r.labelsForSosreportJob(s.Name)
 
-	storageClassName := "standard"
+	var storageClassName *string
+	if r.pvcStorageClass != "" {
+		storageClassName = &r.pvcStorageClass
+	}
 	pvc := &corev1.PersistentVolumeClaim{
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{
 				corev1.ReadWriteOnce,
 			},
-			StorageClassName: &storageClassName,
+			StorageClassName: storageClassName,
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: resourcev1.MustParse("10Gi"),
+					corev1.ResourceStorage: resourcev1.MustParse(r.pvcCapacity),
 				},
 			},
 		},

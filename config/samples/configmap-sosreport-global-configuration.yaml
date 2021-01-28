@@ -10,3 +10,5 @@ data:
   debug: "true"
   concurrency: "1"
   log-level: "0"
+  pvc-storage-class: "standard"
+  pvc-capacity: "5Gi"
