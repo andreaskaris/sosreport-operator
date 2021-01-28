@@ -63,6 +63,14 @@ var _ = Describe("Sosreport controller", func() {
 							"node-role.kubernetes.io/master": "",
 						},
 					},
+					Spec: corev1.NodeSpec{
+						Taints: []corev1.Taint{
+							corev1.Taint{
+								Key:    "node-role.kubernetes.io/master",
+								Effect: corev1.TaintEffectNoSchedule,
+							},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, masterNode)).Should(Succeed())
 
