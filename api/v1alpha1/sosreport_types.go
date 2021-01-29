@@ -26,10 +26,12 @@ import (
 
 // SosreportSpec defines the desired state of Sosreport
 type SosreportSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
-	Tolerations  []corev1.Toleration `json:"tolerations,omitempty" protobuf:"bytes,22,opt,name=tolerations"`
+	// Select nodes to run sosreports on.
+	// For example, in order to generate Sosreports on all master nodes, use
+	// node-role.kubernetes.io/master: ""
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// Sosreport jobs will respect Node Taints. One can work around this by configuring tolerations.
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty" protobuf:"bytes,22,opt,name=tolerations"`
 }
 
 // SosreportStatus defines the observed state of Sosreport
