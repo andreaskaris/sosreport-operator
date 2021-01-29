@@ -14,6 +14,8 @@
 
 export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
+PV_DIR="/pv"
+
 if [ "$CASE_NUMBER" != "" ]; then
 	ticket_number="--ticket-number $CASE_NUMBER"
 fi
@@ -31,7 +33,11 @@ fi
 options="$ticket_number $verbose $simulation_mode"
 sosreport --batch  -k crio.all=on -k crio.logs=on $options | tee /tmp/log.txt
 
-export sosreport_file=$(grep 'tar.xz' /tmp/log.txt  | awk '{print $1}')
+tmp_sosreport_file=$(grep 'tar.xz' /tmp/log.txt  | awk '{print $1}')
+sosreport_basename=$(basename $tmp_sosreport_file)
+export sosreport_file=$PV_DIR/$sosreport_basename
+echo "Moving file $tmp_sosreport_file to PV $sosreport_file"
+mv $tmp_sosreport_file $sosreport_file
 
 if [ "$UPLOAD_METHOD" == "case" ]; then
 	${DIR}/upload_to_case.sh
