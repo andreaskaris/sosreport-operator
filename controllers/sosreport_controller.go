@@ -477,6 +477,35 @@ func isJobDone(j batchv1.Job) (bool, batchv1.JobConditionType) {
 }
 
 /*
+Determine if the sosreport CR tolerates a specific node
+*/
+func (r *SosreportReconciler) tolerates(s *supportv1alpha1.Sosreport, n corev1.Node) bool {
+	for _, taint := range n.Spec.Taints {
+		log.V(r.sosreportLogLevel).Info("Checking taint", "taint", taint)
+
+		if len(s.Spec.Tolerations) == 0 {
+			return false
+		}
+
+		for ti, toleration := range s.Spec.Tolerations {
+			log.V(r.sosreportLogLevel).Info("Checking toleration", "toleration", toleration, "ti", ti)
+
+			if toleration.ToleratesTaint(&taint) {
+				// break the inner loop and check the next Taint
+				break
+			}
+			// if we have gone through all Tolerations and none
+			// matches this taint - return false
+			if ti == len(s.Spec.Tolerations)-1 {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+/*
 Schedule jobs for this sosreport on Nodes which match the NodeSelector.
 */
 func (r *SosreportReconciler) scheduleSosreportJobs(s *supportv1alpha1.Sosreport, req ctrl.Request) (bool, error) {
@@ -499,7 +528,12 @@ func (r *SosreportReconciler) scheduleSosreportJobs(s *supportv1alpha1.Sosreport
 
 	nodeNameList := make(map[string]struct{})
 	for _, node := range nodeList.Items {
-		nodeNameList[node.Name] = struct{}{}
+		// exclude nodes with Taints which do not match Toleration
+		if r.tolerates(s, node) {
+			nodeNameList[node.Name] = struct{}{}
+		} else {
+			log.V(r.sosreportLogLevel).Info("Node is not tolerated by Sosreport, skipping", "node.Name", node.Name, "node.Spec.Taints", node.Spec.Taints, "s.Spec.Tolerations", s.Spec.Tolerations)
+		}
 	}
 
 	if j, err := json.Marshal(nodeNameList); err == nil {

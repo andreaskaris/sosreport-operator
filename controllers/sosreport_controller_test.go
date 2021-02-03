@@ -103,6 +103,29 @@ var _ = Describe("Sosreport controller", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, workerNodeTwo)).Should(Succeed())
+
+				By("Creating a worker node which shall be skipped")
+				workerNodeThree := &corev1.Node{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Node",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-2",
+						Labels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Spec: corev1.NodeSpec{
+						Taints: []corev1.Taint{
+							corev1.Taint{
+								Key:    "node-role.kubernetes.io/do-not-schedule",
+								Effect: corev1.TaintEffectNoSchedule,
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, workerNodeThree)).Should(Succeed())
 			}
 
 			By("By creating a new ConfigMap")
@@ -157,6 +180,10 @@ var _ = Describe("Sosreport controller", func() {
 					Tolerations: []corev1.Toleration{
 						corev1.Toleration{
 							Key:    "node-role.kubernetes.io/master",
+							Effect: corev1.TaintEffectNoSchedule,
+						},
+						corev1.Toleration{
+							Key:    "node.kubernetes.io/not-ready",
 							Effect: corev1.TaintEffectNoSchedule,
 						},
 					},

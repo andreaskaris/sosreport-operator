@@ -4,9 +4,9 @@ metadata:
   name: sosreport-sample
   #namespace: sosreport-operator-system
 spec:
-   tolerations:
-   - key: node-role.kubernetes.io/master
-     effect: NoSchedule
+#  tolerations:
+#   - key: node-role.kubernetes.io/master
+#     effect: NoSchedule
 #  nodeSelector:
 #    type: worker
 #  nodeSelector:
