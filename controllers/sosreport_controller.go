@@ -436,6 +436,9 @@ func (r *SosreportReconciler) dequeueSosreportJobsDone(s *supportv1alpha1.Sosrep
 	}
 
 	if j, err := json.Marshal(r.jobRunningList[s.UID]); err == nil {
+		if s.Annotations == nil {
+			s.Annotations = make(map[string]string)
+		}
 		if s.Annotations["job-running-list"] != string(j) {
 			s.Annotations["job-running-list"] = string(j)
 			r.update(s)
