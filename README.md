@@ -9,8 +9,8 @@ This guide contains building and installatoin instructions. See [USERGUIDE.md](U
 The operator requires a special image to run the sosreport jobs. Build this 
 image with:
 ~~~
-make podman-build-centos-sosreport IMG=kind:5000/sosreport-centos
-make podman-push-centos-sosreport IMG=kind:5000/sosreport-centos
+make podman-build-centos-sosreport REGISTRY=kind:5000
+make podman-push-centos-sosreport REGISTRY=kind:5000
 ~~~
 > Adjust the `IMG=(...)` value as needed.
 
@@ -34,9 +34,9 @@ make run ENABLE_WEBHOOKS=false
 
 To install the operator:
 ~~~
-make podman-build IMG=kind:5000/sosreport-operator:v0.0.1
-make podman-push IMG=kind:5000/sosreport-operator:v0.0.1
-make deploy IMG=kind:5000/sosreport-operator:v0.0.1
+make podman-build REGISTRY=kind:5000
+make podman-push REGISTRY=kind:5000
+make deploy REGISTRY=kind:5000
 ~~~
 
 To remove the operator again:
@@ -47,7 +47,7 @@ make undeploy
 ## Installing the Operator from quay.io images
 
 ~~~
-make deploy IMG=quay.io/akaris/sosreport-operator:latest
+make deploy OPERATOR_IMG=quay.io/akaris/sosreport-operator:latest
 ~~~
 
 To remove the operator again:
@@ -63,7 +63,7 @@ make undeploy
 
 Example custom resources can be deployed and undeployed with:
 ~~~
-make deploy-examples
+make deploy-examples REGISTRY=kind:5000 SIMULATION_MODE=false
 make undeploy-examples
 ~~~
 
@@ -71,10 +71,10 @@ make undeploy-examples
 
 ### For local registry
 ~~~
-make bundle IMG=kind:5000/sosreport-operator:v0.0.1
-make bundle-build-podman BUNDLE_IMG=kind:5000/sosreport-operator-bundle:v0.0.1
-make bundle-push-podman BUNDLE_IMG=kind:5000/sosreport-operator-bundle:v0.0.1
-make bundle-validate-podman BUNDLE_IMG=kind:5000/sosreport-operator-bundle:v0.0.1
+make bundle REGISTRY=kind:5000
+make bundle-build-podman REGISTRY=kind:5000
+make bundle-push-podman REGISTRY=kind:5000
+make bundle-validate-podman REGISTRY=kind:5000
 ~~~
 
 ### For quay.io
@@ -97,8 +97,8 @@ make opm
 ### Local registry
 
 ~~~
-make index-build BUNDLE_IMG=kind:5000/sosreport-operator-bundle:v0.0.1 INDEX_IMG=kind:5000/sosreport-operator-index:v0.0.1
-make index-push-podman INDEX_IMG=kind:5000/sosreport-operator-index:v0.0.1
+make index-build REGISTRY=kind:5000
+make index-push-podman REGISTRY=kind:5000
 ~~~
 
 ### Quay.io

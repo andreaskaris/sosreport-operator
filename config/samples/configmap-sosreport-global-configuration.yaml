@@ -6,7 +6,7 @@ metadata:
 data:
   sosreport-image: "kind:5000/sosreport-centos:latest"
   sosreport-command: "bash -x /scripts/entrypoint.sh"
-  simulation-mode: "true"
+  simulation-mode: "false"
   debug: "true"
   concurrency: "1"
   log-level: "0"

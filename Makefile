@@ -1,7 +1,12 @@
 # Current Operator version
 VERSION ?= 0.0.1
-# Default bundle image tag
-BUNDLE_IMG ?= controller-bundle:$(VERSION)
+REGISTRY ?= kind:5000
+SOSREPORT_IMG ?= ${REGISTRY}/sosreport-centos:$(VERSION)
+OPERATOR_IMG ?= ${REGISTRY}/sosreport-operator:$(VERSION)
+BUNDLE_IMG ?= ${REGISTRY}/sosreport-operator-bundle:$(VERSION)
+INDEX_IMG ?= ${REGISTRY}/sosreport-operator-index:${VERSION}
+SIMULATION_MODE ?= true
+
 # Options for 'bundle-build'
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
@@ -51,7 +56,7 @@ uninstall: manifests kustomize
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy: manifests kustomize
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${OPERATOR_IMG}
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 undeploy:
@@ -75,43 +80,47 @@ generate: controller-gen
 
 # Build the docker image with docker
 docker-build: test
-	docker build . -t ${IMG}
+	docker build . -t ${OPERATOR_IMG}
 
 # Push the docker image
 docker-push:
-	docker push ${IMG}
+	docker push ${OPERATOR_IMG}
 
 # Build the docker image with buildah
 podman-build: test
-	buildah bud --format docker -t ${IMG} .
+	buildah bud --format docker -t ${OPERATOR_IMG} .
 
 # Push the docker image
 podman-push:
-	podman push ${IMG}
+	podman push ${OPERATOR_IMG}
 
 # Build the docker image with buildah
 podman-build-centos-sosreport:
 	rm -Rf containers/sosreport-centos/scripts ; \
 	cp -a containers/scripts containers/sosreport-centos && \
-	cd containers/sosreport-centos && buildah bud --format docker -t ${IMG} . ; \
+	cd containers/sosreport-centos && buildah bud --format docker -t ${SOSREPORT_IMG} . ; \
 	cd - ; \
 	rm -Rf containers/sosreport-centos/scripts
 
 # Push the docker image
 podman-push-centos-sosreport:
-	podman push ${IMG}
+	podman push ${SOSREPORT_IMG}
 
 deploy-examples:
-	kubectl apply -f ./config/samples/configmap-sosreport-global-configuration.yaml && \
-	kubectl apply -f ./config/samples/configmap-sosreport-upload-configuration.yaml && \
-	kubectl apply -f ./config/samples/secret-sosreport-upload-secret.yaml && \
-	kubectl apply -f ./config/samples/support_v1alpha1_sosreport.yaml 
+	rm -Rf /tmp/samples && \
+	cp -a ./config/samples/ /tmp/samples && \
+	sed -i "s#^  simulation-mode:.*#  simulation-mode: \"${SIMULATION_MODE}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml && \
+	sed -i "s#^  sosreport-image:.*#  sosreport-image: \"${SOSREPORT_IMG}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml && \
+	kubectl apply -f /tmp/samples/configmap-sosreport-global-configuration.yaml && \
+	kubectl apply -f /tmp/samples/configmap-sosreport-upload-configuration.yaml && \
+	kubectl apply -f /tmp/samples/secret-sosreport-upload-secret.yaml && \
+	kubectl apply -f /tmp/samples/support_v1alpha1_sosreport.yaml 
 
 undeploy-examples:
-	kubectl delete -f ./config/samples/configmap-sosreport-global-configuration.yaml && \
-	kubectl delete -f ./config/samples/configmap-sosreport-upload-configuration.yaml && \
-	kubectl delete -f ./config/samples/secret-sosreport-upload-secret.yaml && \
-	kubectl delete -f ./config/samples/support_v1alpha1_sosreport.yaml 
+	kubectl delete -f /tmp/samples/configmap-sosreport-global-configuration.yaml && \
+	kubectl delete -f /tmp/samples/configmap-sosreport-upload-configuration.yaml && \
+	kubectl delete -f /tmp/samples/secret-sosreport-upload-secret.yaml && \
+	kubectl delete -f /tmp/samples/support_v1alpha1_sosreport.yaml 
 
 # find or download controller-gen
 # download controller-gen if necessary
@@ -149,7 +158,7 @@ endif
 .PHONY: bundle
 bundle: manifests kustomize
 	operator-sdk generate kustomize manifests -q
-	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(CONTROLLER_IMG)
 	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	operator-sdk bundle validate ./bundle
 
@@ -164,13 +173,13 @@ bundle-build-podman:
 	buildah bud -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 bundle-push-podman:
-	podman push $(BUNDLE_IMG)
+	podman push $(BUNDLE_IMG):v${VERSION}
 
 bundle-validate:
 	operator-sdk bundle validate $(BUNDLE_IMG)
 
 bundle-validate-podman:
-	operator-sdk bundle validate -b podman $(BUNDLE_IMG)
+	operator-sdk bundle validate -b podman $(BUNDLE_IMG}
 
 opm:
 	go get github.com/operator-framework/operator-registry ; \
