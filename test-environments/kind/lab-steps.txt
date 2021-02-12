@@ -1,0 +1,53 @@
+### Create custom image registry
+
+Make sure to update $IP_ADDRESS!
+~~~
+bash create-mirror-registry.sh
+~~~
+
+### Restage kind
+
+~~~
+kind delete cluster
+kind create cluster --config kindcfg/master-worker.yaml
+~~~
+
+### Deploy sosreport operator in kind
+
+~~~
+cd $GOPATH/src/sosreport-operator
+make podman-build-centos-sosreport IMG=kind:5000/sosreport-centos
+make podman-push-centos-sosreport IMG=kind:5000/sosreport-centos
+make generate
+make manifests
+make install
+~~~
+
+Run the operator:
+~~~
+make run ENABLE_WEBHOOKS=false
+~~~
+
+Deploy/undeploy examples:
+~~~
+make deploy-examples
+make undeploy-examples
+~~~
+
+### Watching
+
+~~~
+watch "oc get jobs ; oc get pods ; oc get sosreport; oc get pv"
+oc get events --watch
+~~~
+
+### CLI
+
+~~~
+cd $GOPATH/src/sosreport-operator-cli
+bin/sosreport-operator-cli --loglevel trace --node kind-worker
+bin/sosreport-operator-cli --loglevel trace --role master
+# or 
+make run FLAGS="--loglevel trace --node kind-worker"
+~~~
+
