@@ -14,7 +14,8 @@ package controllers
 
 import (
 	"context"
-	// "fmt"
+	"fmt"
+	"os"
 	//"reflect"
 	"time"
 
@@ -22,35 +23,77 @@ import (
 	. "github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	errorsv1 "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	supportv1alpha1 "github.com/andreaskaris/sosreport-operator/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 var _ = Describe("Sosreport controller", func() {
 
-	// Define utility constants for object names and testing timeouts/durations and intervals.
+	// Define utility constants for object names and testing TIMEOUTs/DURATIONs and INTERVALs.
 	const (
-		SosreportName          = "test-sosreport"
-		SosreportNamespace     = "default"
+		SOSREPORT_NAME         = "test-sosreport"
+		SOSREPORT_NAMESPACE    = "sosreport-test"
 		GLOBAL_CONFIG_MAP_NAME = "sosreport-global-configuration"
-		JobName                = "test-job"
+		JOB_NAME               = "test-job"
 
-		timeout  = time.Second * 10
-		duration = time.Second * 10
-		interval = time.Millisecond * 250
+		TIMEOUT  = time.Second * 10
+		DURATION = time.Second * 10
+		INTERVAL = time.Millisecond * 250
 	)
 
 	Context("Creating a Sosreport", func() {
 		It("Should successfully run sosreport jobs when a new Sosreport is created", func() {
 			ctx := context.Background()
+			var err error
+			sosreportImage := os.Getenv("SOSREPORT_IMG")
+			useExistingCluster := false
+			if os.Getenv("USE_EXISTING_CLUSTER") == "true" {
+				useExistingCluster = true
+			}
+			fmt.Fprintf(GinkgoWriter, "sosreportImage: '%v'\n", sosreportImage)
+			fmt.Fprintf(GinkgoWriter, "useExistingCluster: '%v'\n", useExistingCluster)
+			isOpenShift := false
 
-			By("Checking if nodes must be created")
+			if useExistingCluster {
+				By("Sleeping for a bit so that the cache can initialize")
+				time.Sleep(5000 * time.Millisecond)
+			}
+
+			if useExistingCluster {
+				By("Determining what type of cluster this is")
+				// Using a unstructured object.
+				u := &unstructured.UnstructuredList{}
+				u.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "config.openshift.io",
+					Kind:    "ClusterVersion",
+					Version: "v1",
+				})
+				err = k8sClient.List(context.Background(), u)
+				if err != nil {
+					isOpenShift = true
+				}
+			}
+
+			By("Listing existing nodes")
 			nodeList := &corev1.NodeList{}
 			listOpts := []client.ListOption{}
-			if err := k8sClient.List(ctx, nodeList, listOpts...); err != nil || len(nodeList.Items) == 0 {
+			err = k8sClient.List(ctx, nodeList, listOpts...)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			if useExistingCluster {
+				By("Making sure that nodeList is not empty when connecting to a real cluster")
+				Expect(len(nodeList.Items)).NotTo(Equal(0))
+				// fmt.Fprintf(GinkgoWriter, "%v: %v, %v: %v\n", "nodeList.Items", nodeList.Items, "len(nodeList.Items)", len(nodeList.Items))
+			}
+
+			if len(nodeList.Items) == 0 {
+				By("Creating nodes")
 				By("Creating a master node")
 				masterNode := &corev1.Node{
 					TypeMeta: metav1.TypeMeta{
@@ -126,33 +169,71 @@ var _ = Describe("Sosreport controller", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, workerNodeThree)).Should(Succeed())
+			} // end if len(nodeList.Items) == 0
+
+			if useExistingCluster {
+				By("Making sure that a valid sosreportImage is set when useExistingCluster = true")
+				Expect(sosreportImage).NotTo(Equal(""))
 			}
 
-			By("By creating a new ConfigMap")
+			By("Checking if namespace" + SOSREPORT_NAMESPACE + " already exists")
+			namespace := &corev1.Namespace{}
+			err = k8sClient.Get(ctx, client.ObjectKey{Name: SOSREPORT_NAMESPACE}, namespace)
+			if statusError, ok := err.(*errorsv1.StatusError); ok &&
+				statusError.Status().Reason == metav1.StatusReasonNotFound {
+				By("Creating namespace" + SOSREPORT_NAMESPACE)
+				newNamespace := &corev1.Namespace{}
+				newNamespace.Name = SOSREPORT_NAMESPACE
+				Expect(k8sClient.Create(ctx, newNamespace)).Should(Succeed())
+			} else {
+				Expect(err).ShouldNot(HaveOccurred())
+			}
+
+			// Make sure that the Namespace really gets created
+			createdNamespace := &corev1.Namespace{}
+			// We'll need to retry getting this newly created Namespace, given that creation may not immediately happen.
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, client.ObjectKey{Name: SOSREPORT_NAMESPACE}, createdNamespace)
+				if err != nil {
+					return false
+				}
+				return true
+			}, TIMEOUT, INTERVAL).Should(BeTrue())
+
+			By("Determining if a global ConfigMap already exists")
+			cmg := &corev1.ConfigMap{}
+			namespacedNameCm := types.NamespacedName{Name: GLOBAL_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
+			err = k8sClient.Get(ctx, namespacedNameCm, cmg)
+			statusError, ok := err.(*errorsv1.StatusError)
+			if !ok || statusError.Status().Reason != metav1.StatusReasonNotFound {
+				Expect(err).ShouldNot(HaveOccurred())
+			}
+
+			By("By creating a new global ConfigMap / Updating the existing one")
 
 			// Create a new ConfigMap first
-			cmg := &corev1.ConfigMap{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "v1",
-					Kind:       "ConfigMap",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      GLOBAL_CONFIG_MAP_NAME,
-					Namespace: SosreportNamespace,
-				},
-				Data: map[string]string{
-					"sosreport-image":   "kind:5000/sosreport-centos:latest",
-					"sosreport-command": "bash -x /scripts/entrypoint.sh",
-					"simulation-mode":   "true",
-					"debug":             "true",
-				},
+			cmg.TypeMeta.APIVersion = "v1"
+			cmg.TypeMeta.Kind = "ConfigMap"
+			cmg.ObjectMeta.Name = GLOBAL_CONFIG_MAP_NAME
+			cmg.ObjectMeta.Namespace = SOSREPORT_NAMESPACE
+			if cmg.Data == nil {
+				cmg.Data = make(map[string]string)
 			}
-			Expect(k8sClient.Create(ctx, cmg)).Should(Succeed())
+			cmg.Data["sosreport-image"] = sosreportImage
+			cmg.Data["sosreport-command"] = "bash -x /scripts/entrypoint.sh"
+			if isOpenShift {
+				cmg.Data["simulation-mode"] = "false"
+			}
+			cmg.Data["image-pull-policy"] = "Always"
+			if statusError.Status().Reason != metav1.StatusReasonNotFound {
+				Expect(k8sClient.Create(ctx, cmg)).Should(Succeed())
+			} else {
+				Expect(k8sClient.Update(ctx, cmg)).Should(Succeed())
+			}
 
 			// Make sure that the ConfigMap really gets created
-			configMapLookupKey := types.NamespacedName{Name: GLOBAL_CONFIG_MAP_NAME, Namespace: SosreportNamespace}
+			configMapLookupKey := types.NamespacedName{Name: GLOBAL_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
 			createdConfigMap := &corev1.ConfigMap{}
-
 			// We'll need to retry getting this newly created ConfigMap, given that creation may not immediately happen.
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, configMapLookupKey, createdConfigMap)
@@ -160,7 +241,7 @@ var _ = Describe("Sosreport controller", func() {
 					return false
 				}
 				return true
-			}, timeout, interval).Should(BeTrue())
+			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 			By("By creating a new Sosreport")
 			// Create a new Sosreport
@@ -170,8 +251,8 @@ var _ = Describe("Sosreport controller", func() {
 					Kind:       "Sosreport",
 				},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      SosreportName,
-					Namespace: SosreportNamespace,
+					Name:      SOSREPORT_NAME,
+					Namespace: SOSREPORT_NAMESPACE,
 				},
 				Spec: supportv1alpha1.SosreportSpec{
 					NodeSelector: map[string]string{
@@ -192,7 +273,7 @@ var _ = Describe("Sosreport controller", func() {
 			Expect(k8sClient.Create(ctx, sosreport)).Should(Succeed())
 
 			// wait until the Sosreport is created
-			sosreportLookupKey := types.NamespacedName{Name: SosreportName, Namespace: SosreportNamespace}
+			sosreportLookupKey := types.NamespacedName{Name: SOSREPORT_NAME, Namespace: SOSREPORT_NAMESPACE}
 			createdSosreport := &supportv1alpha1.Sosreport{}
 
 			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
@@ -202,7 +283,7 @@ var _ = Describe("Sosreport controller", func() {
 					return false
 				}
 				return true
-			}, timeout, interval).Should(BeTrue())
+			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 			By("By making sure that the Sosreport switches to InProgress")
 			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
@@ -214,7 +295,7 @@ var _ = Describe("Sosreport controller", func() {
 				}
 				// fmt.Fprintf(GinkgoWriter, "Test: %v\n", createdSosreport.Status.InProgress)
 				return createdSosreport.Status.InProgress
-			}, timeout, interval).Should(BeTrue())
+			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 			By("By making sure that the Sosreport has a job in the job-to-run-list")
 			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
@@ -227,7 +308,7 @@ var _ = Describe("Sosreport controller", func() {
 				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-to-run-list\"]: %v\n", createdSosreport.Annotations["job-to-run-list"])
 				return createdSosreport.Annotations["job-to-run-list"] == "{\"worker-1\":{}}" ||
 					createdSosreport.Annotations["job-to-run-list"] == "{\"worker-0\":{}}"
-			}, timeout, interval).Should(BeTrue())
+			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 			By("By making sure that the Sosreport has a job in the job-running-list")
 			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
@@ -240,13 +321,13 @@ var _ = Describe("Sosreport controller", func() {
 				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-running-list\"]: %v\n", createdSosreport.Annotations["job-running-list"])
 				return createdSosreport.Annotations["job-running-list"] == "{\"worker-0\":{}}" ||
 					createdSosreport.Annotations["job-running-list"] == "{\"worker-1\":{}}"
-			}, timeout, interval).Should(BeTrue())
+			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 			By("Retrieving a list of all jobs that belong to this sosreport")
 			allSosreportJobs := &batchv1.JobList{}
 			controllerSosreportJobs := &batchv1.JobList{}
 
-			err := k8sClient.List(ctx, allSosreportJobs, client.InNamespace(SosreportNamespace))
+			err = k8sClient.List(ctx, allSosreportJobs, client.InNamespace(SOSREPORT_NAMESPACE))
 			Expect(err).ShouldNot(HaveOccurred())
 
 			for _, sosreportJob := range allSosreportJobs.Items {
@@ -290,7 +371,7 @@ var _ = Describe("Sosreport controller", func() {
 				}
 				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-to-run-list\"]: %v\n", createdSosreport.Annotations["job-to-run-list"])
 				return createdSosreport.Annotations["job-to-run-list"] == "{}"
-			}, timeout, interval).Should(BeTrue())
+			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 			By("By making sure that the Sosreport has a job in the job-running-list")
 			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
@@ -303,13 +384,13 @@ var _ = Describe("Sosreport controller", func() {
 				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-running-list\"]: %v\n", createdSosreport.Annotations["job-running-list"])
 				return createdSosreport.Annotations["job-running-list"] == "{\"worker-1\":{}}" ||
 					createdSosreport.Annotations["job-running-list"] == "{\"worker-0\":{}}"
-			}, timeout, interval).Should(BeTrue())
+			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 			By("Retrieving a list of all jobs that belong to this sosreport")
 			allSosreportJobs = &batchv1.JobList{}
 			controllerSosreportJobs = &batchv1.JobList{}
 
-			err = k8sClient.List(ctx, allSosreportJobs, client.InNamespace(SosreportNamespace))
+			err = k8sClient.List(ctx, allSosreportJobs, client.InNamespace(SOSREPORT_NAMESPACE))
 			Expect(err).ShouldNot(HaveOccurred())
 
 			for _, sosreportJob := range allSosreportJobs.Items {
@@ -352,7 +433,7 @@ var _ = Describe("Sosreport controller", func() {
 				}
 				// fmt.Fprintf(GinkgoWriter, "Test: %v\n", createdSosreport.Status.Finished)
 				return createdSosreport.Status.Finished
-			}, timeout, interval).Should(BeTrue())
+			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 		})
 	})

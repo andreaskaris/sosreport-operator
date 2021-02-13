@@ -10,6 +10,11 @@ INDEX_IMG ?= ${REGISTRY}/sosreport-operator-index:${VERSION}
 SIMULATION_MODE ?= true
 STORAGE_CLASS ?= ""
 IMAGE_PULL_POLICY ?= ""
+UPLOAD_METHOD ?= "none"
+NFS_SHARE ?= "kind:/nfs"
+
+# Options for tests
+USE_EXISTING_CLUSTER=false
 
 # Options for 'bundle-build'
 ifneq ($(origin CHANNELS), undefined)
@@ -40,7 +45,7 @@ ENVTEST_ASSETS_DIR = $(shell pwd)/testbin
 test: generate fmt vet manifests
 	mkdir -p $(ENVTEST_ASSETS_DIR)
 	test -f $(ENVTEST_ASSETS_DIR)/setup-envtest.sh || curl -sSLo $(ENVTEST_ASSETS_DIR)/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.6.3/hack/setup-envtest.sh
-	source $(ENVTEST_ASSETS_DIR)/setup-envtest.sh; fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); go test ./... -coverprofile cover.out
+	source $(ENVTEST_ASSETS_DIR)/setup-envtest.sh; fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); SOSREPORT_IMG=${SOSREPORT_IMG} USE_EXISTING_CLUSTER=${USE_EXISTING_CLUSTER} go test ./... -coverprofile cover.out
 
 # Build manager binary
 manager: generate fmt vet
@@ -117,6 +122,8 @@ deploy-examples:
 	sed -i "s#^  sosreport-image:.*#  sosreport-image: \"${SOSREPORT_IMG}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml && \
 	sed -i "s#^  pvc-storage-class:.*#  pvc-storage-class: \"${STORAGE_CLASS}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml &&\
 	sed -i "s#^  image-pull-policy:.*#  image-pull-policy: \"${IMAGE_PULL_POLICY}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml &&\
+	sed -i "s#^  nfs-share:.*#  nfs-share: \"${NFS_SHARE}\"#" /tmp/samples/configmap-sosreport-upload-configuration.yaml &&\
+	sed -i "s#^  upload-method:.*#  upload-method: \"${UPLOAD_METHOD}\"#" /tmp/samples/configmap-sosreport-upload-configuration.yaml &&\
 	kubectl apply -f /tmp/samples/configmap-sosreport-global-configuration.yaml && \
 	kubectl apply -f /tmp/samples/configmap-sosreport-upload-configuration.yaml && \
 	kubectl apply -f /tmp/samples/secret-sosreport-upload-secret.yaml && \
