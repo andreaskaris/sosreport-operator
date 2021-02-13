@@ -63,9 +63,11 @@ make undeploy
 
 Example custom resources can be deployed and undeployed with:
 ~~~
-make deploy-examples REGISTRY=kind:5000 SIMULATION_MODE=false
+make deploy-examples REGISTRY=kind:5000 SIMULATION_MODE=false IMAGE_PULL_POLICY="Always"
 make undeploy-examples
 ~~~
+> For kind deployments, set SIMULATION_MODE=true
+> For testing, set IMAGE_PULL_POLICY to "Always"
 
 ## Generating OLM bundle images
 

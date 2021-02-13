@@ -5,7 +5,11 @@ SOSREPORT_IMG ?= ${REGISTRY}/sosreport-centos:$(VERSION)
 OPERATOR_IMG ?= ${REGISTRY}/sosreport-operator:$(VERSION)
 BUNDLE_IMG ?= ${REGISTRY}/sosreport-operator-bundle:$(VERSION)
 INDEX_IMG ?= ${REGISTRY}/sosreport-operator-index:${VERSION}
+
+# Options for make deploy-examples
 SIMULATION_MODE ?= true
+STORAGE_CLASS ?= ""
+IMAGE_PULL_POLICY ?= ""
 
 # Options for 'bundle-build'
 ifneq ($(origin CHANNELS), undefined)
@@ -111,10 +115,13 @@ deploy-examples:
 	cp -a ./config/samples/ /tmp/samples && \
 	sed -i "s#^  simulation-mode:.*#  simulation-mode: \"${SIMULATION_MODE}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml && \
 	sed -i "s#^  sosreport-image:.*#  sosreport-image: \"${SOSREPORT_IMG}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml && \
+	sed -i "s#^  pvc-storage-class:.*#  pvc-storage-class: \"${STORAGE_CLASS}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml &&\
+	sed -i "s#^  image-pull-policy:.*#  image-pull-policy: \"${IMAGE_PULL_POLICY}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml &&\
 	kubectl apply -f /tmp/samples/configmap-sosreport-global-configuration.yaml && \
 	kubectl apply -f /tmp/samples/configmap-sosreport-upload-configuration.yaml && \
 	kubectl apply -f /tmp/samples/secret-sosreport-upload-secret.yaml && \
-	kubectl apply -f /tmp/samples/support_v1alpha1_sosreport.yaml 
+	kubectl apply -f /tmp/samples/support_v1alpha1_sosreport.yaml && \
+	kubectl get namespaces | grep -q openshift && oc adm policy add-scc-to-user privileged -z default 
 
 undeploy-examples:
 	kubectl delete -f /tmp/samples/configmap-sosreport-global-configuration.yaml && \

@@ -3,6 +3,7 @@ module github.com/andreaskaris/sosreport-operator
 go 1.13
 
 require (
+	github.com/andreaskaris/sosreport-operator-cli v0.0.0-20210211114730-92e1a1c5bcc1 // indirect
 	github.com/go-logr/logr v0.3.0
 	github.com/go-logr/zapr v0.3.0 // indirect
 	github.com/onsi/ginkgo v1.12.1

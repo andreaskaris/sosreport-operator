@@ -12,3 +12,4 @@ data:
   log-level: "0"
   pvc-storage-class: "standard"
   pvc-capacity: "5Gi"
+  image-pull-policy: "" # "", "Always", "IfNotPresent", "Never"

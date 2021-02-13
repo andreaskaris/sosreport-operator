@@ -57,6 +57,7 @@ const (
 	DEFAULT_SOSREPORT_CONCURRENCY = 1
 	DEFAULT_LOGLEVEL              = 1
 	DEFAULT_PVC_SIZE              = "10Gi"
+	DEFAULT_IMAGE_PULL_POLICY     = "" // Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
 )
 
 // SosreportReconciler reconciles a Sosreport object
@@ -78,6 +79,7 @@ type SosreportReconciler struct {
 	sosreportLogLevel    int
 	pvcStorageClass      string
 	pvcCapacity          string
+	imagePullPolicy      string
 }
 
 var log logr.Logger
@@ -219,6 +221,7 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 	sosreportLogLevel := DEFAULT_LOGLEVEL
 	pvcStorageClass := ""
 	pvcCapacity := DEFAULT_PVC_SIZE
+	imagePullPolicy := DEFAULT_IMAGE_PULL_POLICY
 
 	cm, err := r.getSosreportConfigMap(GLOBAL_CONFIG_MAP_NAME, s, req)
 	if err == nil {
@@ -254,6 +257,14 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 		if ok {
 			pvcCapacity = pvcCapacityCm
 		}
+		imagePullPolicyCm, ok := cm.Data["image-pull-policy"]
+		if ok {
+			if imagePullPolicyCm == string(corev1.PullAlways) ||
+				imagePullPolicyCm == string(corev1.PullNever) ||
+				imagePullPolicyCm == string(corev1.PullIfNotPresent) {
+				imagePullPolicy = imagePullPolicyCm
+			}
+		}
 	}
 	log.V(DEFAULT_LOGLEVEL).Info("Setting loglevel to", "sosreportLogLevel", sosreportLogLevel)
 	r.sosreportLogLevel = sosreportLogLevel
@@ -267,6 +278,8 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 	r.pvcStorageClass = pvcStorageClass
 	log.V(r.sosreportLogLevel).Info("PVC capacity", "pvcCapacity", pvcCapacity)
 	r.pvcCapacity = pvcCapacity
+	log.V(r.sosreportLogLevel).Info("ImagePullPolicy", "imagePullPolicy", imagePullPolicy)
+	r.imagePullPolicy = imagePullPolicy
 }
 
 /*
@@ -803,6 +816,10 @@ func (r *SosreportReconciler) jobForSosreport(nodeName string, environmentMap ma
 			MountPath: "/pv",
 		},
 	)
+
+	if r.imagePullPolicy != "" {
+		job.Spec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullPolicy(r.imagePullPolicy)
+	}
 
 	// Set ownerReferences
 	// Set Sosreport instance as the owner of this pvc
