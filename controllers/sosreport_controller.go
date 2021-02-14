@@ -401,7 +401,7 @@ func (r *SosreportReconciler) getSosreportJobs(s *supportv1alpha1.Sosreport, req
 	}
 	for _, sosreportJob := range allSosreportJobs.Items {
 		// https://book.kubebuilder.io/cronjob-tutorial/controller-implementation.html
-		ownerReference := jobGetController(sosreportJob)
+		ownerReference := objectGetController(sosreportJob.ObjectMeta)
 		// there may be other jobs in this namespace with no owner
 		if ownerReference == nil {
 			continue
@@ -470,8 +470,8 @@ func (r *SosreportReconciler) dequeueSosreportJobsDone(s *supportv1alpha1.Sosrep
 This method gets the owner reference for a job if the job has an owner
 Returns nil otherwise
 */
-func jobGetController(j batchv1.Job) *metav1.OwnerReference {
-	for _, ownerReference := range j.OwnerReferences {
+func objectGetController(o metav1.ObjectMeta) *metav1.OwnerReference {
+	for _, ownerReference := range o.OwnerReferences {
 		if *ownerReference.Controller == true {
 			return &ownerReference
 		}

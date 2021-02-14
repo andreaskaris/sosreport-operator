@@ -441,7 +441,7 @@ var _ = Describe("Sosreport controller", func() {
 
 			for _, sosreportJob := range allSosreportJobs.Items {
 				// https://book.kubebuilder.io/cronjob-tutorial/controller-implementation.html
-				ownerReference := jobGetController(sosreportJob)
+				ownerReference := objectGetController(sosreportJob.ObjectMeta)
 				// there may be other jobs in this namespace with no owner
 				if ownerReference == nil {
 					continue
@@ -505,7 +505,7 @@ var _ = Describe("Sosreport controller", func() {
 
 				for _, sosreportJob := range allSosreportJobs.Items {
 					// https://book.kubebuilder.io/cronjob-tutorial/controller-implementation.html
-					ownerReference := jobGetController(sosreportJob)
+					ownerReference := objectGetController(sosreportJob.ObjectMeta)
 					// there may be other jobs in this namespace with no owner
 					if ownerReference == nil {
 						continue
@@ -549,6 +549,64 @@ var _ = Describe("Sosreport controller", func() {
 				// fmt.Fprintf(GinkgoWriter, "Test: %v\n", createdSosreport.Status.Finished)
 				return createdSosreport.Status.Finished
 			}, timeout, INTERVAL).Should(BeTrue())
+
+			if useExistingCluster {
+				By("Retrieving a list of all jobs that belong to this sosreport")
+				allSosreportJobs = &batchv1.JobList{}
+				controllerSosreportJobs = &batchv1.JobList{}
+
+				err = k8sClient.List(ctx, allSosreportJobs, client.InNamespace(SOSREPORT_NAMESPACE))
+				Expect(err).ShouldNot(HaveOccurred())
+
+				for _, sosreportJob := range allSosreportJobs.Items {
+					// https://book.kubebuilder.io/cronjob-tutorial/controller-implementation.html
+					ownerReference := objectGetController(sosreportJob.ObjectMeta)
+					// there may be other jobs in this namespace with no owner
+					if ownerReference == nil {
+						continue
+					}
+					//log.Info("Inspecting sosreport job's owner",
+					//	"Name", sosreportJob.Name,
+					//	"ownerReference.Kind", ownerReference.Kind,
+					//	"ownerReference.UID", ownerReference.UID,
+					//	"sosreport.UID", s.UID)
+					if ownerReference.Kind == "Sosreport" && ownerReference.UID == createdSosreport.UID {
+						//log.Info("ownerReference matches sosreport", "Kind", ownerReference.Kind,
+						//	"UID", ownerReference.UID)
+						controllerSosreportJobs.Items = append(controllerSosreportJobs.Items, sosreportJob)
+					}
+				}
+
+				By("Retrieving a list of all PVCs that belong to this sosreport")
+				allSosreportPVCs := &corev1.PersistentVolumeClaimList{}
+				controllerSosreportPVCs := &corev1.PersistentVolumeClaimList{}
+
+				err = k8sClient.List(ctx, allSosreportPVCs, client.InNamespace(SOSREPORT_NAMESPACE))
+				Expect(err).ShouldNot(HaveOccurred())
+
+				for _, sosreportPVC := range allSosreportPVCs.Items {
+					// https://book.kubebuilder.io/cronjob-tutorial/controller-implementation.html
+					ownerReference := objectGetController(sosreportPVC.ObjectMeta)
+					// there may be other jobs in this namespace with no owner
+					if ownerReference == nil {
+						continue
+					}
+					//log.Info("Inspecting sosreport job's owner",
+					//	"Name", sosreportJob.Name,
+					//	"ownerReference.Kind", ownerReference.Kind,
+					//	"ownerReference.UID", ownerReference.UID,
+					//	"sosreport.UID", s.UID)
+					if ownerReference.Kind == "Sosreport" && ownerReference.UID == createdSosreport.UID {
+						//log.Info("ownerReference matches sosreport", "Kind", ownerReference.Kind,
+						//	"UID", ownerReference.UID)
+						controllerSosreportPVCs.Items = append(controllerSosreportPVCs.Items, sosreportPVC)
+					}
+				}
+
+				By("Making sure that the same number of PVCs and of Jobs was created")
+				Expect(len(controllerSosreportPVCs.Items)).To(Equal(len(controllerSosreportJobs.Items)))
+
+			} // if useExistingCluster
 
 		})
 	})
