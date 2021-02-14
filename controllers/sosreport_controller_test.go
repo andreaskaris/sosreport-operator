@@ -17,12 +17,14 @@ import (
 	"fmt"
 	"os"
 	//"reflect"
+	"encoding/json"
 	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	errorsv1 "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -42,9 +44,10 @@ var _ = Describe("Sosreport controller", func() {
 		GLOBAL_CONFIG_MAP_NAME = "sosreport-global-configuration"
 		JOB_NAME               = "test-job"
 
-		TIMEOUT  = time.Second * 10
-		DURATION = time.Second * 10
-		INTERVAL = time.Millisecond * 250
+		TIMEOUT                      = time.Second * 10
+		USE_EXISTING_CLUSTER_TIMEOUT = time.Second * 600
+		DURATION                     = time.Second * 10
+		INTERVAL                     = time.Millisecond * 250
 	)
 
 	Context("Creating a Sosreport", func() {
@@ -60,10 +63,8 @@ var _ = Describe("Sosreport controller", func() {
 			fmt.Fprintf(GinkgoWriter, "useExistingCluster: '%v'\n", useExistingCluster)
 			isOpenShift := false
 
-			if useExistingCluster {
-				By("Sleeping for a bit so that the cache can initialize")
-				time.Sleep(5000 * time.Millisecond)
-			}
+			By("Sleeping for a bit so that the cache can initialize")
+			time.Sleep(5000 * time.Millisecond)
 
 			if useExistingCluster {
 				By("Determining what type of cluster this is")
@@ -75,10 +76,12 @@ var _ = Describe("Sosreport controller", func() {
 					Version: "v1",
 				})
 				err = k8sClient.List(context.Background(), u)
-				if err != nil {
+				// if we find a resource ClusterVersion, then this is OCP
+				if err == nil {
 					isOpenShift = true
 				}
 			}
+			fmt.Fprintf(GinkgoWriter, "isOpenShift: '%v'\n", isOpenShift)
 
 			By("Listing existing nodes")
 			nodeList := &corev1.NodeList{}
@@ -179,26 +182,62 @@ var _ = Describe("Sosreport controller", func() {
 			By("Checking if namespace" + SOSREPORT_NAMESPACE + " already exists")
 			namespace := &corev1.Namespace{}
 			err = k8sClient.Get(ctx, client.ObjectKey{Name: SOSREPORT_NAMESPACE}, namespace)
-			if statusError, ok := err.(*errorsv1.StatusError); ok &&
-				statusError.Status().Reason == metav1.StatusReasonNotFound {
+			if err != nil {
+				if statusError, ok := err.(*errorsv1.StatusError); !ok ||
+					statusError.Status().Reason != metav1.StatusReasonNotFound {
+					Expect(err).ShouldNot(HaveOccurred())
+				}
+
 				By("Creating namespace" + SOSREPORT_NAMESPACE)
 				newNamespace := &corev1.Namespace{}
 				newNamespace.Name = SOSREPORT_NAMESPACE
 				Expect(k8sClient.Create(ctx, newNamespace)).Should(Succeed())
-			} else {
-				Expect(err).ShouldNot(HaveOccurred())
+
+				// Make sure that the Namespace really gets created
+				createdNamespace := &corev1.Namespace{}
+				// We'll need to retry getting this newly created Namespace, given that creation may not immediately happen.
+				Eventually(func() bool {
+					err := k8sClient.Get(ctx, client.ObjectKey{Name: SOSREPORT_NAMESPACE}, createdNamespace)
+					if err != nil {
+						return false
+					}
+					return true
+				}, TIMEOUT, INTERVAL).Should(BeTrue())
 			}
 
-			// Make sure that the Namespace really gets created
-			createdNamespace := &corev1.Namespace{}
-			// We'll need to retry getting this newly created Namespace, given that creation may not immediately happen.
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, client.ObjectKey{Name: SOSREPORT_NAMESPACE}, createdNamespace)
-				if err != nil {
-					return false
+			if isOpenShift {
+				By("Getting Privileged SCC ClusterRoleBinding")
+				crb := &rbacv1.ClusterRoleBinding{}
+
+				err = k8sClient.Get(
+					ctx,
+					client.ObjectKey{Name: "system:openshift:scc:privileged"},
+					crb,
+				)
+				Expect(err).ShouldNot(HaveOccurred())
+
+				By("Setting Privileged SCC for the namespace")
+				crbFound := false
+				for _, s := range crb.Subjects {
+					if s.Kind == "ServiceAccount" &&
+						s.Name == "default" &&
+						s.Namespace == SOSREPORT_NAMESPACE {
+						crbFound = true
+						break
+					}
 				}
-				return true
-			}, TIMEOUT, INTERVAL).Should(BeTrue())
+				if !crbFound {
+					crb.Subjects = append(
+						crb.Subjects,
+						rbacv1.Subject{
+							Kind:      "ServiceAccount",
+							Name:      "default",
+							Namespace: SOSREPORT_NAMESPACE,
+						},
+					)
+					Expect(k8sClient.Update(ctx, crb)).Should(Succeed())
+				}
+			}
 
 			By("Determining if a global ConfigMap already exists")
 			cmg := &corev1.ConfigMap{}
@@ -208,8 +247,6 @@ var _ = Describe("Sosreport controller", func() {
 			if !ok || statusError.Status().Reason != metav1.StatusReasonNotFound {
 				Expect(err).ShouldNot(HaveOccurred())
 			}
-
-			By("By creating a new global ConfigMap / Updating the existing one")
 
 			// Create a new ConfigMap first
 			cmg.TypeMeta.APIVersion = "v1"
@@ -225,9 +262,11 @@ var _ = Describe("Sosreport controller", func() {
 				cmg.Data["simulation-mode"] = "false"
 			}
 			cmg.Data["image-pull-policy"] = "Always"
-			if statusError.Status().Reason != metav1.StatusReasonNotFound {
+			if ok && statusError.Status().Reason == metav1.StatusReasonNotFound {
+				By("By creating a new global ConfigMap")
 				Expect(k8sClient.Create(ctx, cmg)).Should(Succeed())
 			} else {
+				By("By updating the existing ConfigMap")
 				Expect(k8sClient.Update(ctx, cmg)).Should(Succeed())
 			}
 
@@ -243,9 +282,48 @@ var _ = Describe("Sosreport controller", func() {
 				return true
 			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
+			By("By checking if a sosreport already exists")
+			namespacedNameSosreport := types.NamespacedName{Name: SOSREPORT_NAME, Namespace: SOSREPORT_NAMESPACE}
+			sosreport := &supportv1alpha1.Sosreport{}
+			err = k8sClient.Get(ctx, namespacedNameSosreport, sosreport)
+			sosreportExists := false
+			if err == nil {
+				// sosreport exists if no err returned
+				sosreportExists = true
+			} else {
+				statusError, ok := err.(*errorsv1.StatusError)
+				if !ok || statusError.Status().Reason != metav1.StatusReasonNotFound {
+					// either this is not a status error or the error is not not found
+					// throw err
+					Expect(err).ShouldNot(HaveOccurred())
+				} else {
+					// this is a StatusError error and it is StatusReasonNotFound
+					sosreportExists = false
+				}
+			}
+
+			if sosreportExists {
+				By("Deleting the existing Sosreport")
+				sosreport.ObjectMeta = metav1.ObjectMeta{
+					Namespace: SOSREPORT_NAMESPACE,
+					Name:      SOSREPORT_NAME,
+				}
+				err = k8sClient.Delete(ctx, sosreport)
+				Expect(err).ShouldNot(HaveOccurred())
+
+				// We'll need to retry getting this deleted Sosreport, given that creation may not immediately happen.
+				Eventually(func() bool {
+					err := k8sClient.Get(ctx, namespacedNameSosreport, sosreport)
+					if err == nil {
+						return false
+					}
+					return true
+				}, TIMEOUT, INTERVAL).Should(BeTrue())
+			}
+
 			By("By creating a new Sosreport")
 			// Create a new Sosreport
-			sosreport := &supportv1alpha1.Sosreport{
+			sosreport = &supportv1alpha1.Sosreport{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "support.openshift.io/v1alpha1",
 					Kind:       "Sosreport",
@@ -272,13 +350,11 @@ var _ = Describe("Sosreport controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, sosreport)).Should(Succeed())
 
-			// wait until the Sosreport is created
-			sosreportLookupKey := types.NamespacedName{Name: SOSREPORT_NAME, Namespace: SOSREPORT_NAMESPACE}
 			createdSosreport := &supportv1alpha1.Sosreport{}
 
 			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
 			Eventually(func() bool {
-				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
+				err := k8sClient.Get(ctx, namespacedNameSosreport, createdSosreport)
 				if err != nil {
 					return false
 				}
@@ -289,7 +365,7 @@ var _ = Describe("Sosreport controller", func() {
 			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
 			Eventually(func() bool {
 				// We need to retrieve a new copy of the Sosreport object at each try
-				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
+				err := k8sClient.Get(ctx, namespacedNameSosreport, createdSosreport)
 				if err != nil {
 					return false
 				}
@@ -301,26 +377,59 @@ var _ = Describe("Sosreport controller", func() {
 			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
 			Eventually(func() bool {
 				// We need to retrieve a new copy of the Sosreport object at each try
-				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
+				err := k8sClient.Get(ctx, namespacedNameSosreport, createdSosreport)
 				if err != nil {
 					return false
 				}
-				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-to-run-list\"]: %v\n", createdSosreport.Annotations["job-to-run-list"])
-				return createdSosreport.Annotations["job-to-run-list"] == "{\"worker-1\":{}}" ||
-					createdSosreport.Annotations["job-to-run-list"] == "{\"worker-0\":{}}"
+
+				if _, ok = createdSosreport.Annotations["job-to-run-list"]; !ok {
+					return false
+				}
+
+				fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-to-run-list\"]: %v\n", createdSosreport.Annotations["job-to-run-list"])
+				var jobToRunList map[string]struct{}
+				err = json.Unmarshal(
+					[]byte(createdSosreport.Annotations["job-to-run-list"]),
+					&jobToRunList,
+				)
+				if err != nil {
+					fmt.Fprintf(GinkgoWriter, "err %v", err)
+					return false
+				}
+				if len(jobToRunList) > 0 {
+					return true
+				}
+				return false
 			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 			By("By making sure that the Sosreport has a job in the job-running-list")
 			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
+
 			Eventually(func() bool {
 				// We need to retrieve a new copy of the Sosreport object at each try
-				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
+				err := k8sClient.Get(ctx, namespacedNameSosreport, createdSosreport)
 				if err != nil {
 					return false
 				}
-				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-running-list\"]: %v\n", createdSosreport.Annotations["job-running-list"])
-				return createdSosreport.Annotations["job-running-list"] == "{\"worker-0\":{}}" ||
-					createdSosreport.Annotations["job-running-list"] == "{\"worker-1\":{}}"
+
+				if _, ok = createdSosreport.Annotations["job-running-list"]; !ok {
+					return false
+				}
+
+				fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-running-list\"]: %v\n", createdSosreport.Annotations["job-running-list"])
+				var jobRunningList map[string]struct{}
+				err = json.Unmarshal(
+					[]byte(createdSosreport.Annotations["job-running-list"]),
+					&jobRunningList,
+				)
+				if err != nil {
+					fmt.Fprintf(GinkgoWriter, "err %v", err)
+					return false
+				}
+				if len(jobRunningList) > 0 {
+					return true
+				}
+				return false
 			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
 			By("Retrieving a list of all jobs that belong to this sosreport")
@@ -349,91 +458,97 @@ var _ = Describe("Sosreport controller", func() {
 				}
 			}
 
-			By("Setting all jobs to done")
-			for _, job := range controllerSosreportJobs.Items {
-				job.Status.Conditions = append(job.Status.Conditions,
-					batchv1.JobCondition{
-						Type:   batchv1.JobComplete,
-						Status: corev1.ConditionTrue,
-					})
-				// fmt.Fprintf(GinkgoWriter, "Updating job: %v\n", job.Name)
-				err := k8sClient.Status().Update(ctx, &job)
+			if !useExistingCluster {
+				By("Setting all jobs to done")
+				for _, job := range controllerSosreportJobs.Items {
+					job.Status.Conditions = append(job.Status.Conditions,
+						batchv1.JobCondition{
+							Type:   batchv1.JobComplete,
+							Status: corev1.ConditionTrue,
+						})
+					// fmt.Fprintf(GinkgoWriter, "Updating job: %v\n", job.Name)
+					err := k8sClient.Status().Update(ctx, &job)
+					Expect(err).ShouldNot(HaveOccurred())
+				}
+
+				By("By making sure that the Sosreport has no job in the job-to-run-list")
+				// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
+				Eventually(func() bool {
+					// We need to retrieve a new copy of the Sosreport object at each try
+					err := k8sClient.Get(ctx, namespacedNameSosreport, createdSosreport)
+					if err != nil {
+						return false
+					}
+					// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-to-run-list\"]: %v\n", createdSosreport.Annotations["job-to-run-list"])
+					return createdSosreport.Annotations["job-to-run-list"] == "{}"
+				}, TIMEOUT, INTERVAL).Should(BeTrue())
+
+				By("By making sure that the Sosreport has a job in the job-running-list")
+				// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
+				Eventually(func() bool {
+					// We need to retrieve a new copy of the Sosreport object at each try
+					err := k8sClient.Get(ctx, namespacedNameSosreport, createdSosreport)
+					if err != nil {
+						return false
+					}
+					// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-running-list\"]: %v\n", createdSosreport.Annotations["job-running-list"])
+					return createdSosreport.Annotations["job-running-list"] == "{\"worker-1\":{}}" ||
+						createdSosreport.Annotations["job-running-list"] == "{\"worker-0\":{}}"
+				}, TIMEOUT, INTERVAL).Should(BeTrue())
+
+				By("Retrieving a list of all jobs that belong to this sosreport")
+				allSosreportJobs = &batchv1.JobList{}
+				controllerSosreportJobs = &batchv1.JobList{}
+
+				err = k8sClient.List(ctx, allSosreportJobs, client.InNamespace(SOSREPORT_NAMESPACE))
 				Expect(err).ShouldNot(HaveOccurred())
-			}
 
-			By("By making sure that the Sosreport has no job in the job-to-run-list")
-			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
-			Eventually(func() bool {
-				// We need to retrieve a new copy of the Sosreport object at each try
-				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
-				if err != nil {
-					return false
+				for _, sosreportJob := range allSosreportJobs.Items {
+					// https://book.kubebuilder.io/cronjob-tutorial/controller-implementation.html
+					ownerReference := jobGetController(sosreportJob)
+					// there may be other jobs in this namespace with no owner
+					if ownerReference == nil {
+						continue
+					}
+					//log.Info("Inspecting sosreport job's owner",
+					//	"Name", sosreportJob.Name,
+					//	"ownerReference.Kind", ownerReference.Kind,
+					//	"ownerReference.UID", ownerReference.UID,
+					//	"sosreport.UID", s.UID)
+					if ownerReference.Kind == "Sosreport" && ownerReference.UID == createdSosreport.UID {
+						//log.Info("ownerReference matches sosreport", "Kind", ownerReference.Kind,
+						//	"UID", ownerReference.UID)
+						controllerSosreportJobs.Items = append(controllerSosreportJobs.Items, sosreportJob)
+					}
 				}
-				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-to-run-list\"]: %v\n", createdSosreport.Annotations["job-to-run-list"])
-				return createdSosreport.Annotations["job-to-run-list"] == "{}"
-			}, TIMEOUT, INTERVAL).Should(BeTrue())
 
-			By("By making sure that the Sosreport has a job in the job-running-list")
-			// We'll need to retry getting this newly created Sosreport, given that creation may not immediately happen.
-			Eventually(func() bool {
-				// We need to retrieve a new copy of the Sosreport object at each try
-				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
-				if err != nil {
-					return false
+				By("Setting all jobs to done")
+				for _, job := range controllerSosreportJobs.Items {
+					job.Status.Conditions = append(job.Status.Conditions,
+						batchv1.JobCondition{
+							Type:   batchv1.JobComplete,
+							Status: corev1.ConditionTrue,
+						})
+					// fmt.Fprintf(GinkgoWriter, "Updating job: %v\n", job.Name)
+					err := k8sClient.Status().Update(ctx, &job)
+					Expect(err).ShouldNot(HaveOccurred())
 				}
-				// fmt.Fprintf(GinkgoWriter, "createdSosreport.Annotations[\"job-running-list\"]: %v\n", createdSosreport.Annotations["job-running-list"])
-				return createdSosreport.Annotations["job-running-list"] == "{\"worker-1\":{}}" ||
-					createdSosreport.Annotations["job-running-list"] == "{\"worker-0\":{}}"
-			}, TIMEOUT, INTERVAL).Should(BeTrue())
-
-			By("Retrieving a list of all jobs that belong to this sosreport")
-			allSosreportJobs = &batchv1.JobList{}
-			controllerSosreportJobs = &batchv1.JobList{}
-
-			err = k8sClient.List(ctx, allSosreportJobs, client.InNamespace(SOSREPORT_NAMESPACE))
-			Expect(err).ShouldNot(HaveOccurred())
-
-			for _, sosreportJob := range allSosreportJobs.Items {
-				// https://book.kubebuilder.io/cronjob-tutorial/controller-implementation.html
-				ownerReference := jobGetController(sosreportJob)
-				// there may be other jobs in this namespace with no owner
-				if ownerReference == nil {
-					continue
-				}
-				//log.Info("Inspecting sosreport job's owner",
-				//	"Name", sosreportJob.Name,
-				//	"ownerReference.Kind", ownerReference.Kind,
-				//	"ownerReference.UID", ownerReference.UID,
-				//	"sosreport.UID", s.UID)
-				if ownerReference.Kind == "Sosreport" && ownerReference.UID == createdSosreport.UID {
-					//log.Info("ownerReference matches sosreport", "Kind", ownerReference.Kind,
-					//	"UID", ownerReference.UID)
-					controllerSosreportJobs.Items = append(controllerSosreportJobs.Items, sosreportJob)
-				}
-			}
-
-			By("Setting all jobs to done")
-			for _, job := range controllerSosreportJobs.Items {
-				job.Status.Conditions = append(job.Status.Conditions,
-					batchv1.JobCondition{
-						Type:   batchv1.JobComplete,
-						Status: corev1.ConditionTrue,
-					})
-				// fmt.Fprintf(GinkgoWriter, "Updating job: %v\n", job.Name)
-				err := k8sClient.Status().Update(ctx, &job)
-				Expect(err).ShouldNot(HaveOccurred())
-			}
+			} // if !useExistingCluster
 
 			By("By making sure that the Sosreport switches to Finished")
+			timeout := TIMEOUT
+			if useExistingCluster {
+				timeout = USE_EXISTING_CLUSTER_TIMEOUT
+			}
 			Eventually(func() bool {
 				// We need to retrieve a new copy of the Sosreport object at each try
-				err := k8sClient.Get(ctx, sosreportLookupKey, createdSosreport)
+				err := k8sClient.Get(ctx, namespacedNameSosreport, createdSosreport)
 				if err != nil {
 					return false
 				}
 				// fmt.Fprintf(GinkgoWriter, "Test: %v\n", createdSosreport.Status.Finished)
 				return createdSosreport.Status.Finished
-			}, TIMEOUT, INTERVAL).Should(BeTrue())
+			}, timeout, INTERVAL).Should(BeTrue())
 
 		})
 	})
