@@ -110,3 +110,18 @@ make index-build BUNDLE_IMG=quay.io/akaris/sosreport-operator-bundle:latest INDE
 podman login quay.io
 make index-push-podman INDEX_IMG=quay.io/akaris/sosreport-operator-index:latest
 ~~~
+
+### Running automated tests
+
+Running automated tests agains a testenv "fake" environment:
+~~~
+make test USE_EXISTING_CLUSTER=false
+~~~
+
+Running automated tests against a real environment
+~~~
+export KUBECONFIG=(...)
+make test USE_EXISTING_CLUSTER=true REGISTRY=registry.example.com:5000
+~~~
+
+
