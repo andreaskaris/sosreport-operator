@@ -9,10 +9,13 @@ This guide contains building and installatoin instructions. See [USERGUIDE.md](U
 The operator requires a special image to run the sosreport jobs. Build this 
 image with:
 ~~~
-make podman-build-centos-sosreport REGISTRY=kind:5000
-make podman-push-centos-sosreport REGISTRY=kind:5000
+make podman-build-sosreport REGISTRY=kind:5000 # RHEL=true
+make podman-push-sosreport REGISTRY=kind:5000  # RHEL=true
 ~~~
-> Adjust the `IMG=(...)` value as needed.
+> Adjust the `REGISTRY=(...)` value as needed.
+> If building and using a RHEL toolbox image instead of CentOS, make sure that the local system is registered and provide `RHEL=true` to all commands that make a reference to `REGISTRY` or `SOSREPORT_IMG`
+> Provide `SOSREPORT_IMG` to fully override the entire image path
+> Go through the `Makefile` for more options
 
 ### Installing Custom Resource Definitions (CRDs)
 
@@ -111,7 +114,7 @@ podman login quay.io
 make index-push-podman INDEX_IMG=quay.io/akaris/sosreport-operator-index:latest
 ~~~
 
-### Running automated tests
+## Running automated tests
 
 Running automated tests agains a testenv "fake" environment:
 ~~~
@@ -124,4 +127,10 @@ export KUBECONFIG=(...)
 make test USE_EXISTING_CLUSTER=true REGISTRY=registry.example.com:5000
 ~~~
 
+## Spawning a deployment with the sosreport operator image
 
+If you want to tinker around with the sosreport operator image in a deployment that simulated the jobs that would otherwise be deployed by the operator, run:
+~~~
+make deploy-test-deployment REGISTRY=registry.example.com:5000 # for CentOS
+make deploy-test-deployment REGISTRY=registry.example.com:5000 RHEL=true # for RHEL
+~~~

@@ -1,7 +1,14 @@
 # Current Operator version
 VERSION ?= 0.0.1
 REGISTRY ?= kind:5000
+RHEL ?= false
+ifeq ($(RHEL), true)
+SOSREPORT_IMG ?= ${REGISTRY}/sosreport-redhat-toolbox:$(VERSION)
+SOSREPORT_CONTAINER_LOCATION=containers/sosreport-redhat-toolbox
+else
 SOSREPORT_IMG ?= ${REGISTRY}/sosreport-centos:$(VERSION)
+SOSREPORT_CONTAINER_LOCATION=containers/sosreport-centos
+endif
 OPERATOR_IMG ?= ${REGISTRY}/sosreport-operator:$(VERSION)
 BUNDLE_IMG ?= ${REGISTRY}/sosreport-operator-bundle:$(VERSION)
 INDEX_IMG ?= ${REGISTRY}/sosreport-operator-index:${VERSION}
@@ -104,16 +111,19 @@ podman-push:
 	podman push ${OPERATOR_IMG}
 
 # Build the docker image with buildah
-podman-build-centos-sosreport:
-	rm -Rf containers/sosreport-centos/scripts ; \
-	cp -a containers/scripts containers/sosreport-centos && \
-	cd containers/sosreport-centos && buildah bud --format docker -t ${SOSREPORT_IMG} . ; \
+podman-build-sosreport:
+	rm -Rf ${SOSREPORT_CONTAINER_LOCATION}/scripts ; \
+	cp -a containers/scripts ${SOSREPORT_CONTAINER_LOCATION} && \
+	cd ${SOSREPORT_CONTAINER_LOCATION} && buildah bud --format docker -t ${SOSREPORT_IMG} . ; \
 	cd - ; \
-	rm -Rf containers/sosreport-centos/scripts
+	rm -Rf ${SOSREPORT_CONTAINER_LOCATION}/scripts
 
 # Push the docker image
-podman-push-centos-sosreport:
+podman-push-sosreport:
 	podman push ${SOSREPORT_IMG}
+
+deploy-test-deployment:
+	SOSREPORT_IMG=${SOSREPORT_IMG} bash test-environments/test-deployment/deploy.sh
 
 deploy-examples:
 	rm -Rf /tmp/samples && \
