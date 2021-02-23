@@ -1,5 +1,7 @@
 #!/bin/bash
 
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
 if [ "$CASE_NUMBER" == "" ] ; then
     echo "No case number provided. Cannot upload sosreport to case."
     exit
@@ -16,7 +18,7 @@ mkdir /root/.redhat-support-tool/ 2>/dev/null
 cat <<EOF > /root/.redhat-support-tool/redhat-support-tool.conf
 [RHHelp]
 user = $USERNAME
-password = $(/pw_decoder.py encode $USERNAME $PASSWORD)
+password = $(${DIR}/pw_decoder.py encode $USERNAME $PASSWORD)
 EOF
 
 if ${OBFUSCATE:-false}; then

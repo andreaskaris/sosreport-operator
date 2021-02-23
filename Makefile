@@ -182,7 +182,7 @@ endif
 .PHONY: bundle
 bundle: manifests kustomize
 	operator-sdk generate kustomize manifests -q
-	cd config/manager && $(KUSTOMIZE) edit set image controller=$(CONTROLLER_IMG)
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(OPERATOR_IMG)
 	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	operator-sdk bundle validate ./bundle
 
@@ -197,13 +197,13 @@ bundle-build-podman:
 	buildah bud -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 bundle-push-podman:
-	podman push $(BUNDLE_IMG):v${VERSION}
+	podman push $(BUNDLE_IMG)
 
 bundle-validate:
 	operator-sdk bundle validate $(BUNDLE_IMG)
 
 bundle-validate-podman:
-	operator-sdk bundle validate -b podman $(BUNDLE_IMG}
+	operator-sdk bundle validate -b podman $(BUNDLE_IMG)
 
 opm:
 	go get github.com/operator-framework/operator-registry ; \

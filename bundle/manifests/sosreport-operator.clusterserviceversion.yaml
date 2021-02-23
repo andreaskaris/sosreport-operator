@@ -11,14 +11,17 @@ metadata:
             "name": "sosreport-sample"
           },
           "spec": {
-            "nodeSelector": {
-              "type": "worker"
-            }
+            "tolerations": [
+              {
+                "effect": "NoSchedule",
+                "key": "node-role.kubernetes.io/master"
+              }
+            ]
           }
         }
       ]
     capabilities: Basic Install
-    operators.operatorframework.io/builder: operator-sdk-v1.2.0+git
+    operators.operatorframework.io/builder: operator-sdk-v1.4.2
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
   name: sosreport-operator.v0.0.1
   namespace: placeholder
@@ -88,6 +91,34 @@ spec:
           - ""
           resources:
           - nodes/status
+          verbs:
+          - get
+        - apiGroups:
+          - ""
+          resources:
+          - persistentvolumeclaims
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - persistentvolumeclaims/finalizers
+          verbs:
+          - create
+          - delete
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - ""
+          resources:
+          - persistentvolumeclaims/status
           verbs:
           - get
         - apiGroups:
@@ -217,7 +248,7 @@ spec:
                 - --enable-leader-election
                 command:
                 - /manager
-                image: quay.io/akaris/sosreport-operator:latest
+                image: quay.io/akaris/sosreport-operator:0.0.1
                 name: manager
                 resources:
                   limits:

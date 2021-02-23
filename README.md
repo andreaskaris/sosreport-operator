@@ -108,10 +108,12 @@ make bundle-validate-podman REGISTRY=registry.example.com:5000
 ### For quay.io
 
 ~~~
-make bundle IMG=quay.io/akaris/sosreport-operator:latest
+make bundle REGISTRY=quay.io/akaris
 ~~~
 
-Simply commit the current snapshot of the repository. Quay will automatically build an image from the latest snapshot.
+Now, simply commit the current snapshot of the repository. 
+
+Quay will automatically build an image from the latest snapshot.
 
 ## Generating OLM index images
 
