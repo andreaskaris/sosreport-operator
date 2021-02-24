@@ -149,9 +149,9 @@ make index-push-podman REGISTRY=registry.example.com:5000
 ### Quay.io
 
 ~~~
-make index-build BUNDLE_IMG=quay.io/akaris/sosreport-operator-bundle:latest INDEX_IMG=quay.io/akaris/sosreport-operator-index:latest
+make index-build REGISTRY=quay.io/akaris
 podman login quay.io
-make index-push-podman INDEX_IMG=quay.io/akaris/sosreport-operator-index:latest
+make index-push-podman REGISTRY=quay.io/akaris
 ~~~
 
 ## Running automated tests
