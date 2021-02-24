@@ -206,6 +206,7 @@ bundle-validate-podman:
 	operator-sdk bundle validate -b podman $(BUNDLE_IMG)
 
 opm:
+	cd ~ ; \
 	go get github.com/operator-framework/operator-registry ; \
 	cd $(GOPATH)/src/github.com/operator-framework/operator-registry ; \
 	make ; \
