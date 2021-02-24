@@ -126,9 +126,9 @@ make bundle-validate-podman REGISTRY=registry.example.com:5000
 make bundle REGISTRY=quay.io/akaris
 ~~~
 
-Now, simply commit the current snapshot of the repository. 
+Now, simply commit the current snapshot of the repository with a valid tag (e.g. 0.0.1).
 
-Quay will automatically build an image from the latest snapshot.
+Quay will automatically build an image from the tag.
 
 ## Generating OLM index images
 
