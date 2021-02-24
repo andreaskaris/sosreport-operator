@@ -29,6 +29,21 @@ make podman-push-sosreport REGISTRY=registry.example.com:5000  RHEL=true
 
 > Go through the `Makefile` for more options
 
+### Working on container images
+
+Container common scripts are in `containers/scripts/`. These scripts are copied to the container sub directory with:
+~~~
+make podman-copy-sosreport-scripts 
+~~~
+
+~~~
+make podman-copy-sosreport-scripts RHEL=true
+~~~
+
+This step is automatically executed when building the images.
+
+When creating a new tag for quay.io, make sure to push the most recent scripts to the containers first, if any.
+
 ### Installing Custom Resource Definitions (CRDs)
 
 Install Custom Resource Definitions with:

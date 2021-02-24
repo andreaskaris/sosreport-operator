@@ -110,13 +110,13 @@ podman-build: test
 podman-push:
 	podman push ${OPERATOR_IMG}
 
-# Build the docker image with buildah
-podman-build-sosreport:
+podman-copy-sosreport-scripts:
 	rm -Rf ${SOSREPORT_CONTAINER_LOCATION}/scripts ; \
-	cp -a containers/scripts ${SOSREPORT_CONTAINER_LOCATION} && \
-	cd ${SOSREPORT_CONTAINER_LOCATION} && buildah bud --format docker -t ${SOSREPORT_IMG} . ; \
-	cd - ; \
-	rm -Rf ${SOSREPORT_CONTAINER_LOCATION}/scripts
+	cp -a containers/scripts ${SOSREPORT_CONTAINER_LOCATION}
+
+# Build the docker image with buildah
+podman-build-sosreport: podman-copy-sosreport-scripts
+	cd ${SOSREPORT_CONTAINER_LOCATION} && buildah bud --format docker -t ${SOSREPORT_IMG} .
 
 # Push the docker image
 podman-push-sosreport:
