@@ -195,7 +195,68 @@ sosreport-sample-openshift-worker-0-20210305200645-pvc   Bound    pvc-064bd41d-0
 
 ### Accessing Sosreports on PVs
 
-(... TBD ...)
+You can spawn a set of pods to access the Physical Volumes:
+~~~
+PVCS=$(oc get pvc -o name | sed 's#persistentvolumeclaim/##')
+for PVC in $PVCS ; do 
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-$PVC
+spec:
+  volumes:
+    - name: $PVC
+      persistentVolumeClaim:
+        claimName: $PVC
+  containers:
+    - name: pv-container
+      image: fedora
+      command:
+      - sleep
+      - infinity
+      volumeMounts:
+        - mountPath: "/pv"
+          name: $PVC
+EOF
+done
+~~~
+
+This will spawn a set of additional pods:
+~~~
+[root@openshift-jumpserver-0 sosreport-operator]# oc get pods
+NAME                                                         READY   STATUS      RESTARTS   AGE
+pod-sosreport-sample-openshift-worker-0-20210305200645-pvc   1/1     Running     0          2m54s
+pod-sosreport-sample-openshift-worker-1-20210305200927-pvc   1/1     Running     0          2m54s
+sosreport-sample-openshift-worker-0-20210305200645-b479n     0/1     Completed   0          23m
+sosreport-sample-openshift-worker-1-20210305200927-26bf4     0/1     Completed   0          20m
+~~~
+
+Once the pods are up, copy the files to your local drive:
+~~~
+PVCS=$(oc get pvc -o name | sed 's#persistentvolumeclaim/##')
+for PVC in $PVCS ; do 
+POD=pod-$PVC
+f=$(oc exec -it $POD ls /pv  | tr -d '\n' | tr -d '\r')
+oc cp ${POD}:/pv/${f} ${f}
+done
+~~~
+
+Verify that the sosreports were copied:
+~~~
+[root@openshift-jumpserver-0 tmp]# ls -al sosreport*
+-rw-r--r--. 1 root root 38783848 Mar  5 20:32 sosreport-openshift-worker-0-2021-03-05-xmcqjwu.tar.xz
+-rw-r--r--. 1 root root 37731176 Mar  5 20:32 sosreport-openshift-worker-1-2021-03-05-pvrlfik.tar.xz
+~~~
+
+And tear down the pods:
+~~~
+PVCS=$(oc get pvc -o name | sed 's#persistentvolumeclaim/##')
+for PVC in $PVCS ; do 
+POD=pod-$PVC
+oc delete pod $POD
+done
+~~~
 
 ## Deleting Sosreports 
 
