@@ -23,6 +23,9 @@ NFS_SHARE ?= "kind:/nfs"
 # Options for tests
 USE_EXISTING_CLUSTER=false
 
+# Default OLM, for OpenShift overwrite to openshift-marketplace
+CATALOG_SOURCE_NAMESPACE ?= "olm"
+
 # Options for 'bundle-build'
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
@@ -125,19 +128,21 @@ podman-push-sosreport:
 deploy-test-deployment:
 	SOSREPORT_IMG=${SOSREPORT_IMG} bash test-environments/test-deployment/deploy.sh
 
-deploy-examples:
-	rm -Rf /tmp/samples && \
-	cp -a ./config/samples/ /tmp/samples && \
-	sed -i "s#^  simulation-mode:.*#  simulation-mode: \"${SIMULATION_MODE}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml && \
-	sed -i "s#^  sosreport-image:.*#  sosreport-image: \"${SOSREPORT_IMG}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml && \
-	sed -i "s#^  pvc-storage-class:.*#  pvc-storage-class: \"${STORAGE_CLASS}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml &&\
-	sed -i "s#^  image-pull-policy:.*#  image-pull-policy: \"${IMAGE_PULL_POLICY}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml &&\
-	sed -i "s#^  nfs-share:.*#  nfs-share: \"${NFS_SHARE}\"#" /tmp/samples/configmap-sosreport-upload-configuration.yaml &&\
-	sed -i "s#^  upload-method:.*#  upload-method: \"${UPLOAD_METHOD}\"#" /tmp/samples/configmap-sosreport-upload-configuration.yaml &&\
-	kubectl apply -f /tmp/samples/configmap-sosreport-global-configuration.yaml && \
-	kubectl apply -f /tmp/samples/configmap-sosreport-upload-configuration.yaml && \
-	kubectl apply -f /tmp/samples/secret-sosreport-upload-secret.yaml && \
-	kubectl apply -f /tmp/samples/support_v1alpha1_sosreport.yaml && \
+deploy-examples-dry-run:
+	rm -Rf /tmp/samples
+	cp -a ./config/samples/ /tmp/samples
+	sed -i "s#^  simulation-mode:.*#  simulation-mode: \"${SIMULATION_MODE}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml
+	sed -i "s#^  sosreport-image:.*#  sosreport-image: \"${SOSREPORT_IMG}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml
+	sed -i "s#^  pvc-storage-class:.*#  pvc-storage-class: \"${STORAGE_CLASS}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml
+	sed -i "s#^  image-pull-policy:.*#  image-pull-policy: \"${IMAGE_PULL_POLICY}\"#" /tmp/samples/configmap-sosreport-global-configuration.yaml
+	sed -i "s#^  nfs-share:.*#  nfs-share: \"${NFS_SHARE}\"#" /tmp/samples/configmap-sosreport-upload-configuration.yaml
+	sed -i "s#^  upload-method:.*#  upload-method: \"${UPLOAD_METHOD}\"#" /tmp/samples/configmap-sosreport-upload-configuration.yaml
+
+deploy-examples: deploy-examples-dry-run
+	kubectl apply -f /tmp/samples/configmap-sosreport-global-configuration.yaml
+	kubectl apply -f /tmp/samples/configmap-sosreport-upload-configuration.yaml
+	kubectl apply -f /tmp/samples/secret-sosreport-upload-secret.yaml
+	kubectl apply -f /tmp/samples/support_v1alpha1_sosreport.yaml
 	kubectl get namespaces | grep -q openshift && oc adm policy add-scc-to-user privileged -z default 
 
 undeploy-examples:
@@ -217,3 +222,16 @@ index-build:
 
 index-push-podman:
 	podman push ${INDEX_IMG}
+
+deploy-index-subscription:
+	rm -Rf /tmp/catalogsources
+	cp -a catalogsources /tmp
+	sed -i "s#^  namespace:.*#  namespace: \"${CATALOG_SOURCE_NAMESPACE}\"#" /tmp/catalogsources/catalogsource.yaml
+	sed -i "s#^  image:.*#  image: \"${INDEX_IMG}\"#" /tmp/catalogsources/catalogsource.yaml
+	sed -i "s#^  sourceNamespace:.*#  sourceNamespace: \"${CATALOG_SOURCE_NAMESPACE}\"#" /tmp/catalogsources/subscription.yaml
+	kubectl apply -f /tmp/catalogsources/catalogsource.yaml
+	kubectl apply -f /tmp/catalogsources/subscription.yaml
+
+undeploy-index-subscription:
+	kubectl delete -f /tmp/catalogsources/subscription.yaml
+	kubectl delete -f /tmp/catalogsources/catalogsource.yaml

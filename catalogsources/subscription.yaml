@@ -9,9 +9,9 @@ kind: OperatorGroup
 metadata:
   name: sosreport-og
   namespace: sosreport-operator
-spec:
-  targetNamespaces:
-  - sosreport-operator
+spec: {}
+#  targetNamespaces:
+#  - sosreport-operator
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
