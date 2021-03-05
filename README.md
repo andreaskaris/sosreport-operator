@@ -154,6 +154,26 @@ podman login quay.io
 make index-push-podman REGISTRY=quay.io/akaris
 ~~~
 
+## Deploying via CatalogSource and Subscription
+
+### Local registry
+
+~~~
+make deploy-index-subscription REGISTRY=registry.example.com:5000 CATALOG_SOURCE_NAMESPACE=olm
+~~~
+
+### Quay.io
+
+~~~
+make deploy-index-subscription REGISTRY=quay.io/akaris CATALOG_SOURCE_NAMESPACE=openshift-marketplace
+~~~
+
+### Undeploy
+
+~~~
+make undeploy-index-subscription
+~~~
+
 ## Running automated tests
 
 Running automated tests agains a testenv "fake" environment:
