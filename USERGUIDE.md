@@ -96,11 +96,7 @@ metadata:
 EOF
 ~~~
 
-In order to avoid overloading the cluster, the Sosreport Operator will run a specific number of Sosreports at a time, by default 1. 
-
-Sosreports will be stored on each node in /host/var/tmp. 
-
-> The Sosreport Operator does currently not take care of cleanups.
+In order to avoid overloading the cluster, the Sosreport Operator will run a specific number of Sosreports at a time, by default 1. This is *per sosreport*. Hence, if you create 3 different sosreport resources, it will run 3 sosreports at a time.
 
 ### Adding Tolerations to Sosreports
 
@@ -108,6 +104,7 @@ Sosreport jobs will respect Node Taints. One can work around this by configuring
 
 For example, in order to spawn Sosreports on master nodes with a `NoSchedule` taint:
 ~~~
+cat <<'EOF' | oc apply -f -
 apiVersion: support.openshift.io/v1alpha1
 kind: Sosreport
 metadata:
@@ -116,6 +113,7 @@ spec:
    tolerations:
    - key: node-role.kubernetes.io/master
      effect: NoSchedule
+EOF
 ~~~
 
 ### Creating Sosreports on a subset of nodes
@@ -126,6 +124,7 @@ Sosreports can easily be executed on a subset of nodes.
 
 For example, in order to generate Sosreports on all master nodes:
 ~~~
+cat <<'EOF' | oc apply -f -
 apiVersion: support.openshift.io/v1alpha1
 kind: Sosreport
 metadata:
@@ -133,6 +132,10 @@ metadata:
 spec:
   nodeSelector:
     node-role.kubernetes.io/master: ""
+   tolerations:
+   - key: node-role.kubernetes.io/master
+     effect: NoSchedule
+EOF
 ~~~
 
 #### Run Sosreports on a specific node
@@ -147,6 +150,56 @@ spec:
   nodeSelector:
     kubernetes.io/hostname: worker-0
 ~~~
+
+## Monitoring Sosreport status
+
+Sosreports emit events whenever something meaningful happens:
+~~~
+[root@openshift-jumpserver-0 samples]# oc describe sosreport
+(...)
+Events:
+  Type    Reason                 Age                            From       Message
+  ----    ------                 ----                           ----       -------
+  Normal  Sosreport job started  14s                            Sosreport  Sosreport started on openshift-worker-0
+  Normal  Sosreport finished     <invalid>                      Sosreport  Sosreport openshift-worker-0 finished
+  Normal  Sosreport job started  <invalid>                      Sosreport  Sosreport started on openshift-worker-1
+  Normal  Sosreport finished     <invalid>                      Sosreport  Sosreport openshift-worker-1 finished
+  Normal  Sosreports finished    <invalid> (x2 over <invalid>)  Sosreport  All Sosreports finished
+~~~
+
+Running Sosreports will show `IN PROGRESS` = `true`:
+~~~
+[root@openshift-jumpserver-0 samples]# oc get sosreport
+NAME               FINISHED   IN PROGRESS
+sosreport-sample              true
+~~~
+
+Once all Sosreports executed, you will see:
+~~~
+[root@openshift-jumpserver-0 samples]# oc get sosreport
+NAME               FINISHED   IN PROGRESS
+sosreport-sample   true 
+~~~
+
+Also use `oc get jobs`, `oc get pods`, `oc get pvc`, `oc get pv`, `oc get events` for further details.
+
+## Where are Sosreports stored?
+
+Sosreports will be stored in dedicated Physical Volumes.
+
+~~~
+[root@openshift-jumpserver-0 samples]# oc get pvc
+NAME                                                     STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS          AGE
+sosreport-sample-openshift-worker-0-20210305200645-pvc   Bound    pvc-064bd41d-0bf2-41df-830e-5ea95211a3bf   10Gi       RWO            managed-nfs-storage   95s
+~~~
+
+### Accessing Sosreports on PVs
+
+(... TBD ...)
+
+## Deleting Sosreports 
+
+Simply run `oc delete sosreport <name>`. When deleting a Sosreport Custom Resource, all associated resources such as jobs, pods and also the PVCs and the PVs will be deleted. This makes it easy to reclaim the space used by Sosreports.
 
 ## Customizing Sosreport configuration via ConfigMap
 
