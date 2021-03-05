@@ -1,13 +1,99 @@
+## Installing on OpenShift
+
+First, deploy the catalog source:
+~~~
+cat <<'EOF' > catalogsource.yaml
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: sosreport-operator-manifests
+  namespace: "openshift-marketplace"
+spec:
+  sourceType: grpc
+  image: "quay.io/akaris/sosreport-operator-index:0.0.1"
+EOF
+oc apply -f catalogsource.yaml
+~~~
+
+Verify with the following commands:
+~~~
+[root@openshift-jumpserver-0 sosreport-operator]# oc get catalogsources  -A | grep sosreport
+openshift-marketplace   sosreport-operator-manifests 
+[root@openshift-jumpserver-0 sosreport-operator]# oc get packagemanifests -A | grep sosreport
+openshift-marketplace   sosreport-operator 
+~~~
+
+Then, deploy the Operator:
+~~~
+cat <<'EOF' > subscription.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sosreport-operator
+spec: {}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: sosreport-og
+  namespace: sosreport-operator
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: sosreport-operator-subscription
+  namespace: sosreport-operator
+spec:
+  channel: alpha
+  name: sosreport-operator
+  source: sosreport-operator-manifests
+  sourceNamespace: "openshift-marketplace"
+EOF
+oc apply -f subscription.yaml
+~~~
+
+Verify with the following commands:
+~~~
+[root@openshift-jumpserver-0 sosreport-operator]# oc project sosreport-operator
+Now using project "sosreport-operator" on server "https://api.cluster.example.com:6443".
+[root@openshift-jumpserver-0 sosreport-operator]# oc get og
+NAME           AGE
+sosreport-og   27m
+[root@openshift-jumpserver-0 sosreport-operator]# oc get sub
+NAME                              PACKAGE              SOURCE                         CHANNEL
+sosreport-operator-subscription   sosreport-operator   sosreport-operator-manifests   alpha
+[root@openshift-jumpserver-0 sosreport-operator]# oc get installplan
+NAME            CSV                         APPROVAL    APPROVED
+install-cgrvj   sosreport-operator.v0.0.1   Automatic   true
+[root@openshift-jumpserver-0 sosreport-operator]# oc get csv
+NAME                        DISPLAY              VERSION   REPLACES   PHASE
+sosreport-operator.v0.0.1   sosreport-operator   0.0.1                Succeeded
+[root@openshift-jumpserver-0 sosreport-operator]# oc get pods
+NAME                                                     READY   STATUS    RESTARTS   AGE
+sosreport-operator-controller-manager-7b4775d7b4-rzvnm   2/2     Running   0          14m
+~~~
+
 ## Creating Sosreports
+
+### Creating a new namespace and making the default user privileged
+
+The sosreport operator pods run with wide privilege in order to allow them to capture the data that they need. Create a new namespace where you wish to run the sosreports and add the default service account to the privileged SCC:
+~~~
+oc new-project sosreport-test
+oc adm policy add-scc-to-user privileged -z default
+~~~
 
 ### Creating Sosreports on all systems
 
-To run Sosreports on all systems, simply apply the following configuration:
+To run Sosreports on all systems without taints (this excludes the masters by default), simply apply the following configuration:
 ~~~
+cat <<'EOF' | oc apply -f -
 apiVersion: support.openshift.io/v1alpha1
 kind: Sosreport
 metadata:
   name: sosreport-sample
+EOF
 ~~~
 
 In order to avoid overloading the cluster, the Sosreport Operator will run a specific number of Sosreports at a time, by default 1. 
