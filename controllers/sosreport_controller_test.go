@@ -39,11 +39,11 @@ var _ = Describe("Sosreport controller", func() {
 
 	// Define utility constants for object names and testing TIMEOUTs/DURATIONs and INTERVALs.
 	const (
-		SOSREPORT_NAME         = "test-sosreport"
-		SOSREPORT_NAMESPACE    = "sosreport-test"
-		GLOBAL_CONFIG_MAP_NAME = "sosreport-global-configuration"
-		DEVELOPMENT_CONFIG_MAP_NAME = "sosreport-developement-configuration"
-		JOB_NAME               = "test-job"
+		SOSREPORT_NAME              = "test-sosreport"
+		SOSREPORT_NAMESPACE         = "sosreport-test"
+		GLOBAL_CONFIG_MAP_NAME      = "sosreport-global-configuration"
+		DEVELOPMENT_CONFIG_MAP_NAME = "sosreport-development-configuration"
+		JOB_NAME                    = "test-job"
 
 		TIMEOUT                      = time.Second * 10
 		USE_EXISTING_CLUSTER_TIMEOUT = time.Second * 600
