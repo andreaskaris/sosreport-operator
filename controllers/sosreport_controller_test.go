@@ -272,7 +272,7 @@ var _ = Describe("Sosreport controller", func() {
 			}
 
 			// Make sure that the ConfigMap really gets created
-			configMapLookupKey := types.NamespacedName{Name: GLOBAL_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
+			configMapLookupKey := types.NamespacedName{Name: DEVELOPMENT_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
 			createdConfigMap := &corev1.ConfigMap{}
 			// We'll need to retry getting this newly created ConfigMap, given that creation may not immediately happen.
 			Eventually(func() bool {
