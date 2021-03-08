@@ -42,6 +42,7 @@ var _ = Describe("Sosreport controller", func() {
 		SOSREPORT_NAME         = "test-sosreport"
 		SOSREPORT_NAMESPACE    = "sosreport-test"
 		GLOBAL_CONFIG_MAP_NAME = "sosreport-global-configuration"
+		DEVELOPMENT_CONFIG_MAP_NAME = "sosreport-developement-configuration"
 		JOB_NAME               = "test-job"
 
 		TIMEOUT                      = time.Second * 10
@@ -241,7 +242,7 @@ var _ = Describe("Sosreport controller", func() {
 
 			By("Determining if a global ConfigMap already exists")
 			cmg := &corev1.ConfigMap{}
-			namespacedNameCm := types.NamespacedName{Name: GLOBAL_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
+			namespacedNameCm := types.NamespacedName{Name: DEVELOPMENT_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
 			err = k8sClient.Get(ctx, namespacedNameCm, cmg)
 			statusError, ok := err.(*errorsv1.StatusError)
 			if !ok || statusError.Status().Reason != metav1.StatusReasonNotFound {
@@ -251,7 +252,7 @@ var _ = Describe("Sosreport controller", func() {
 			// Create a new ConfigMap first
 			cmg.TypeMeta.APIVersion = "v1"
 			cmg.TypeMeta.Kind = "ConfigMap"
-			cmg.ObjectMeta.Name = GLOBAL_CONFIG_MAP_NAME
+			cmg.ObjectMeta.Name = DEVELOPMENT_CONFIG_MAP_NAME
 			cmg.ObjectMeta.Namespace = SOSREPORT_NAMESPACE
 			if cmg.Data == nil {
 				cmg.Data = make(map[string]string)
