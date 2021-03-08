@@ -96,7 +96,7 @@ metadata:
 EOF
 ~~~
 
-In order to avoid overloading the cluster, the Sosreport Operator will run a specific number of Sosreports at a time, by default 1. This is *per sosreport*. Hence, if you create 3 different sosreport resources, it will run 3 sosreports at a time.
+> In order to avoid overloading the cluster, the Sosreport Operator will run a specific number of Sosreports at a time, by default 1. This is *per sosreport*. Hence, if you create 3 different sosreport resources, it will run 3 sosreports at a time.
 
 ### Adding Tolerations to Sosreports
 
@@ -262,15 +262,169 @@ done
 
 Simply run `oc delete sosreport <name>`. When deleting a Sosreport Custom Resource, all associated resources such as jobs, pods and also the PVCs and the PVs will be deleted. This makes it easy to reclaim the space used by Sosreports.
 
-## Customizing Sosreport configuration via ConfigMap
+## Sosreport upload settings
 
-For specific purposes, it is possible to override a few settings to make it easier to run local images and custom commands. These parameters are explained in `For testing only`.
+The Sosreport Operator allows the automatic upload of generated sosreports to:
 
-Other parameters can be used in production environments. See `For real world deployments` for these.
+* Red Hat support cases
+* NFS
+* FTP
 
-Create the `sosreport-global-configuration` ConfigMap to set a few key settings.
+### Automatic upload to Red Hat support cases
+
+Create a ConfigMap named `sosreport-upload-configuration` in the Sosreport's namespace. Specify `upload-method` `case` and set the case number. Select `obfuscate` `true|false` depending on if you want to run the `sos` obfuscate feature:
+~~~
+cat <<'EOF' > sosreport-upload-configuration-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sosreport-upload-configuration
+data:
+  case-number: "00000000"
+  upload-method: "case"
+  obfuscate: "false"
+EOF
+oc apply -f sosreport-upload-configuration-configmap.yaml
+~~~
+
+Create a secret with your RHN username and password:
+~~~
+cat <<'EOF' > sosreport-upload-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sosreport-upload-secret
+type: kubernetes.io/basic-auth
+stringData:
+  username: test@example.com
+  password: password
+EOF
+oc apply -f sosreport-upload-secret.yaml
+~~~
+
+> **Note:** Passwords which are stored in Kubernetes Secrets can be seen by any user who has the administrative rights to view Secrets. The Username and Password will be passed to the Jobs and Pods via environment variables and will be in clear text and are visible in the Pods' definitions.
+
+With this configuration in place, create a set of Sosreports, e.g. with:
+~~~
+cat <<'EOF' | oc apply -f -
+apiVersion: support.openshift.io/v1alpha1
+kind: Sosreport
+metadata:
+  name: sosreport-sample
+EOF
+~~~
+
+You can monitor the sosreport generation and upload progress by following a Pod's logs, for example with:
+~~~
+$ oc logs -f sosreport-sample-openshift-worker-0-20210308103224-kwcbx
+~~~
+
+Towards the end of the log, you should see:
+~~~
+Uploading sosreport-openshift-worker-0-00000000-2021-03-08-eompair.tar.xz to the case ... completed successfully.
+~~~
+
+### Automatic upload to FTP servers
+
+> **Note:** At this point in time, the FTP upload feature is not sufficiently implemented and tested. It may work, but it also may not.
+
+Create a ConfigMap named `sosreport-upload-configuration` in the Sosreport's namespace. Specify `upload-method` `ftp` and set `ftp-server` to the address of the FTP server:
+~~~
+cat <<'EOF' > sosreport-upload-configuration-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sosreport-upload-configuration
+data:
+  upload-method: "ftp"
+  ftp-server: "ftp://kind"
+EOF
+oc apply -f sosreport-upload-configuration-configmap.yaml
+~~~
+
+Create a secret with your FTP username and password:
+~~~
+cat <<'EOF' > sosreport-upload-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sosreport-upload-secret
+type: kubernetes.io/basic-auth
+stringData:
+  username: test@example.com
+  password: password
+EOF
+oc apply -f sosreport-upload-secret.yaml
+~~~
+
+> **Note:** Passwords which are stored in Kubernetes Secrets can be seen by any user who has the administrative rights to view Secrets. The Username and Password will be passed to the Jobs and Pods via environment variables and will be in clear text and are visible in the Pods' definitions.
+
+> **Note:** FTPS was not tested and will more than likely not work at the moment.
+
+With this configuration in place, create a set of Sosreports, e.g. with:
+~~~
+cat <<'EOF' | oc apply -f -
+apiVersion: support.openshift.io/v1alpha1
+kind: Sosreport
+metadata:
+  name: sosreport-sample
+EOF
+~~~
+
+### Automatic upload to NFS servers
+
+Create a ConfigMap named `sosreport-upload-configuration` in the Sosreport's namespace. Specify `upload-method` `nfs` and set `ftp-share` to the share of the NFS serve. Set options to be passed to the NFS mount (as `-o ${nfs-options}`) via `nfs-options`:
+~~~
+cat <<'EOF' > sosreport-upload-configuration-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sosreport-upload-configuration
+data:
+  upload-method: "nfs"
+  nfs-share: "kind:/nfs" # must be set for nfs
+  nfs-options: "" # optional for nfs
+EOF
+oc apply -f sosreport-upload-configuration-configmap.yaml
+~~~
+
+With this configuration in place, create a set of Sosreports, e.g. with:
+~~~
+cat <<'EOF' | oc apply -f -
+apiVersion: support.openshift.io/v1alpha1
+kind: Sosreport
+metadata:
+  name: sosreport-sample
+EOF
+~~~
+
+## Advanced customization of Sosreport configuration via ConfigMap
+
+Create the `sosreport-global-configuration` ConfigMap to set a few key settings such as the log level, Sosreport concurrency and the PVC configuration.
 
 > **Note:** This ConfigMap must be in the same namespace as the `Sosreport` resource
+
+~~~
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sosreport-global-configuration
+data:
+  log-level: "0"
+  concurrency: "1"
+  pvc-storage-class: "standard"
+  pvc-capacity: "5Gi"
+~~~
+
+* `log-level`: Set log-level of log-messages. Currently, the lower the log-level (min `0`), the more verbose
+* `concurrency`: Set number of concurrent Sosreports. The default is 1 and this should not be raised too high.
+* `pvc-storage-class`: Name of PVC storage class
+* `pvc-capacity`: Name of PVC capacity
+
+
+## For development and testing only
+
+For specific purposes, it is possible to override a few settings to make it easier to run local images and custom commands. These parameters are explained here and are meant for development and troubleshooting purposes.
 
 ~~~
 apiVersion: v1
@@ -282,119 +436,9 @@ data:
   sosreport-command: "bash -x /scripts/entrypoint.sh"
   simulation-mode: "true"
   debug: "true"
-  log-level: "0"
-  concurrency: "1"
-  pvc-storage-class: "standard"
-  pvc-capacity: "5Gi"
 ~~~
-
-### For testing only
 
 * `sosreport-image`: Use a custom image for the Sosreport jobs
 * `sosreport-command`: Use a custom entrypoing command for Sosreport jobs
 * `simulation-mode`: Generate Sosreports locally in the container instead of on the node (required for testing in `kind` environments)
 * `debug`: Set Sosreport jobs' scripts to debug mode
-
-### For real world deployments
-
-* `log-level`: Set log-level of log-messages. Currently, the lower the log-level (min `0`), the more verbose
-* `concurrency`: Set number of concurrent Sosreports. The default is 1 and this should not be raised too high.
-* `pvc-storage-class`: Name of PVC storage class
-* `pvc-capacity`: Name of PVC capacity
-
-## Configuring upload settings
-
-The Sosreport operator has an automatic upload feature which can be configured via ConfigMap `sosreport-upload-configuration`.
-
-> **Note:** This ConfigMap must be in the same namespace as the `Sosreport` resource
-
-> **Note:** In all cases, the Sosreport operator will maintain a local copy of each Sosreport file
-
-### Uploading directly to a case via RH support tool
-
-In order to upload directly to a case via Red Hat support tool, set the following values:
-~~~
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sosreport-upload-configuration
-data:
-  case-number: "00000000"
-  upload-method: "case"
-  obfuscate: "false"
-~~~
-
-* `upload-method`: Set this to `case`
-* `case-number`: Red Hat support case number
-* `obfuscate`: Remove sensitive data from the sosreport before uploading
-
-Create the following secret:
-~~~
-apiVersion: v1
-kind: Secret
-metadata:
-  name: sosreport-upload-secret
-type: kubernetes.io/basic-auth
-stringData:
-  username: test@example.com
-  password: password
-~~~
-
-* `username`: Red Hat username
-* `password`: Red Hat password
-
-> **Note:** Passwords which are stored in Kubernetes `Secrets` can be seen by any user who has the administrative rights to view `Secrets`. The Username and Password will be passed to the Jobs and Pods via environment variables and will be in clear text and are visible in the Pods' definitions.
-
-### Upload to FTP
-
-Create the following ConfigMap to upload to FTP:
-~~~
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sosreport-upload-configuration
-data:
-  upload-method: "ftp"
-  ftp-server: "ftp://kind"
-~~~
-
-* `upload-method`: Must be `ftp`
-* `ftp-server`: Address of FTP server
-
-Create the following secret:
-~~~
-apiVersion: v1
-kind: Secret
-metadata:
-  name: sosreport-upload-secret
-type: kubernetes.io/basic-auth
-stringData:
-  username: test@example.com
-  password: password
-~~~
-
-* `username`: FTP username
-* `password`: FTP password
-
-> **Note:** Passwords which are stored in Kubernetes `Secrets` can be seen by any user who has the administrative rights to view `Secrets`. The Username and Password will be passed to the Jobs and Pods via environment variables and will be in clear text and are visible in the Pods' definitions.
-
-> **Note:** FTPS was not tested and will more than likely not work at the moment.
-
-### Upload to NFS
-
-Create the following ConfigMap to upload to NFS
-~~~
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sosreport-upload-configuration
-data:
-  upload-method: "nfs"
-  nfs-share: "kind:/nfs" # must be set for nfs
-  nfs-options: "" # optional for nfs
-~~~
-
-* `upload-method`: Must be `nfs`
-* `nfs-share`: Path to the NFS share
-* `nfs-options`: Options to be passed to the NFS mount (as `-o ${nfs-options}`)
-
