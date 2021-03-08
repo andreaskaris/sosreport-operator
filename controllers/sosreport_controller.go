@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	//"sigs.k8s.io/controller-runtime/pkg/handler"
 	//"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	//"sigs.k8s.io/controller-runtime/pkg/source"
@@ -50,6 +51,7 @@ import (
 
 const (
 	GLOBAL_CONFIG_MAP_NAME        = "sosreport-global-configuration"        // name of the global ConfigMap with overrides
+	DEVELOPMENT_CONFIG_MAP_NAME   = "sosreport-development-configuration"   // name of the global ConfigMap with overrides
 	UPLOAD_CONFIG_MAP_NAME        = "sosreport-upload-configuration"        // name of the upload ConfigMap
 	UPLOAD_SECRET_NAME            = "sosreport-upload-secret"               // name of the Secret for upload authentication
 	DEFAULT_IMAGE_NAME            = "quay.io/akaris/sosreport-centos:0.0.1" // to point to final version of sosreport IMAGE
@@ -57,7 +59,8 @@ const (
 	DEFAULT_SOSREPORT_CONCURRENCY = 1
 	DEFAULT_LOGLEVEL              = 1
 	DEFAULT_PVC_SIZE              = "10Gi"
-	DEFAULT_IMAGE_PULL_POLICY     = "" // Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+	DEFAULT_IMAGE_PULL_POLICY     = ""   // Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+	IS_DEVELOPER_MODE             = true // potentially unsafe settings that can easily be disabled
 )
 
 // SosreportReconciler reconciles a Sosreport object
@@ -135,6 +138,9 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	r.init()
 	// before we run this, read some configuration from configmap
 	r.setGlobalSosreportReconcilerConfiguration(sosreport, req)
+	if IS_DEVELOPER_MODE {
+		r.setDevelopmentSosreportReconcilerConfiguration(sosreport, req)
+	}
 
 	// a sosreport is not yet running if its not on the runList
 	// and if its status.inProgress is false
@@ -211,17 +217,13 @@ func (r *SosreportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 /*
-This method reads custom configuration from a configmap that allows admins to overwrite the sosreport generation
-image as well as the sosreport command
+This method reads custom configuration from a configmap that allows admins to overwrite PVC settings, log-level and concurrency
 */
 func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *supportv1alpha1.Sosreport, req ctrl.Request) {
-	sosreportImage := DEFAULT_IMAGE_NAME
-	sosreportCommand := DEFAULT_SOSREPORT_COMMAND
 	sosreportConcurrency := DEFAULT_SOSREPORT_CONCURRENCY
 	sosreportLogLevel := DEFAULT_LOGLEVEL
 	pvcStorageClass := ""
 	pvcCapacity := DEFAULT_PVC_SIZE
-	imagePullPolicy := DEFAULT_IMAGE_PULL_POLICY
 
 	cm, err := r.getSosreportConfigMap(GLOBAL_CONFIG_MAP_NAME, s, req)
 	if err == nil {
@@ -232,14 +234,6 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 			} else {
 				log.V(DEFAULT_LOGLEVEL).Info("Cannot parse log level", "logLevel", sosreportLogLevelCm)
 			}
-		}
-		sosreportImageCm, ok := cm.Data["sosreport-image"]
-		if ok {
-			sosreportImage = sosreportImageCm
-		}
-		sosreportCommandCm, ok := cm.Data["sosreport-command"]
-		if ok {
-			sosreportCommand = sosreportCommandCm
 		}
 		sosreportConcurrencyCm, ok := cm.Data["concurrency"]
 		if ok {
@@ -257,6 +251,36 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 		if ok {
 			pvcCapacity = pvcCapacityCm
 		}
+	}
+	log.V(DEFAULT_LOGLEVEL).Info("Setting loglevel to", "sosreportLogLevel", sosreportLogLevel)
+	r.sosreportLogLevel = sosreportLogLevel
+	log.V(r.sosreportLogLevel).Info("Using concurrency", "concurrency", sosreportConcurrency)
+	r.sosreportConcurrency = sosreportConcurrency
+	log.V(r.sosreportLogLevel).Info("PVC storage class", "pvcStorageClass", pvcStorageClass)
+	r.pvcStorageClass = pvcStorageClass
+	log.V(r.sosreportLogLevel).Info("PVC capacity", "pvcCapacity", pvcCapacity)
+	r.pvcCapacity = pvcCapacity
+}
+
+/*
+This method reads custom configuration from a configmap that allows admins to overwrite the sosreport generation
+image as well as the sosreport command and image pull policy (developer settings)
+*/
+func (r *SosreportReconciler) setDevelopmentSosreportReconcilerConfiguration(s *supportv1alpha1.Sosreport, req ctrl.Request) {
+	sosreportImage := DEFAULT_IMAGE_NAME
+	sosreportCommand := DEFAULT_SOSREPORT_COMMAND
+	imagePullPolicy := DEFAULT_IMAGE_PULL_POLICY
+
+	cm, err := r.getSosreportConfigMap(DEVELOPMENT_CONFIG_MAP_NAME, s, req)
+	if err == nil {
+		sosreportImageCm, ok := cm.Data["sosreport-image"]
+		if ok {
+			sosreportImage = sosreportImageCm
+		}
+		sosreportCommandCm, ok := cm.Data["sosreport-command"]
+		if ok {
+			sosreportCommand = sosreportCommandCm
+		}
 		imagePullPolicyCm, ok := cm.Data["image-pull-policy"]
 		if ok {
 			if imagePullPolicyCm == string(corev1.PullAlways) ||
@@ -266,18 +290,10 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 			}
 		}
 	}
-	log.V(DEFAULT_LOGLEVEL).Info("Setting loglevel to", "sosreportLogLevel", sosreportLogLevel)
-	r.sosreportLogLevel = sosreportLogLevel
 	log.V(r.sosreportLogLevel).Info("Using sosreport-image", "sosreport-image", sosreportImage)
 	r.imageName = sosreportImage
 	log.V(r.sosreportLogLevel).Info("Using sosreport-command", "sosreport-command", sosreportCommand)
 	r.sosreportCommand = sosreportCommand
-	log.V(r.sosreportLogLevel).Info("Using concurrency", "concurrency", sosreportConcurrency)
-	r.sosreportConcurrency = sosreportConcurrency
-	log.V(r.sosreportLogLevel).Info("PVC storage class", "pvcStorageClass", pvcStorageClass)
-	r.pvcStorageClass = pvcStorageClass
-	log.V(r.sosreportLogLevel).Info("PVC capacity", "pvcCapacity", pvcCapacity)
-	r.pvcCapacity = pvcCapacity
 	log.V(r.sosreportLogLevel).Info("ImagePullPolicy", "imagePullPolicy", imagePullPolicy)
 	r.imagePullPolicy = imagePullPolicy
 }
@@ -294,7 +310,7 @@ func (r *SosreportReconciler) getEnvConfigurationFromConfigMapAndSecret(s *suppo
 		"nfs-options":   "NFS_OPTIONS",
 		"ftp-server":    "FTP_SERVER",
 	}
-	keyMapGlobalCm := map[string]string{
+	keyMapDevelopmentCm := map[string]string{
 		"simulation-mode": "SIMULATION_MODE",
 		"debug":           "DEBUG",
 	}
@@ -314,12 +330,15 @@ func (r *SosreportReconciler) getEnvConfigurationFromConfigMapAndSecret(s *suppo
 			}
 		}
 	}
-	cmu, err := r.getSosreportConfigMap(GLOBAL_CONFIG_MAP_NAME, s, req)
-	if err == nil {
-		for k, v := range cmu.Data {
-			// username and password shall be provided by secret
-			if envK, ok := keyMapGlobalCm[k]; ok {
-				configurationMap[envK] = v
+
+	if IS_DEVELOPER_MODE {
+		cmu, err := r.getSosreportConfigMap(DEVELOPMENT_CONFIG_MAP_NAME, s, req)
+		if err == nil {
+			for k, v := range cmu.Data {
+				// username and password shall be provided by secret
+				if envK, ok := keyMapDevelopmentCm[k]; ok {
+					configurationMap[envK] = v
+				}
 			}
 		}
 	}

@@ -39,10 +39,11 @@ var _ = Describe("Sosreport controller", func() {
 
 	// Define utility constants for object names and testing TIMEOUTs/DURATIONs and INTERVALs.
 	const (
-		SOSREPORT_NAME         = "test-sosreport"
-		SOSREPORT_NAMESPACE    = "sosreport-test"
-		GLOBAL_CONFIG_MAP_NAME = "sosreport-global-configuration"
-		JOB_NAME               = "test-job"
+		SOSREPORT_NAME              = "test-sosreport"
+		SOSREPORT_NAMESPACE         = "sosreport-test"
+		GLOBAL_CONFIG_MAP_NAME      = "sosreport-global-configuration"
+		DEVELOPMENT_CONFIG_MAP_NAME = "sosreport-development-configuration"
+		JOB_NAME                    = "test-job"
 
 		TIMEOUT                      = time.Second * 10
 		USE_EXISTING_CLUSTER_TIMEOUT = time.Second * 600
@@ -241,7 +242,7 @@ var _ = Describe("Sosreport controller", func() {
 
 			By("Determining if a global ConfigMap already exists")
 			cmg := &corev1.ConfigMap{}
-			namespacedNameCm := types.NamespacedName{Name: GLOBAL_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
+			namespacedNameCm := types.NamespacedName{Name: DEVELOPMENT_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
 			err = k8sClient.Get(ctx, namespacedNameCm, cmg)
 			statusError, ok := err.(*errorsv1.StatusError)
 			if !ok || statusError.Status().Reason != metav1.StatusReasonNotFound {
@@ -251,7 +252,7 @@ var _ = Describe("Sosreport controller", func() {
 			// Create a new ConfigMap first
 			cmg.TypeMeta.APIVersion = "v1"
 			cmg.TypeMeta.Kind = "ConfigMap"
-			cmg.ObjectMeta.Name = GLOBAL_CONFIG_MAP_NAME
+			cmg.ObjectMeta.Name = DEVELOPMENT_CONFIG_MAP_NAME
 			cmg.ObjectMeta.Namespace = SOSREPORT_NAMESPACE
 			if cmg.Data == nil {
 				cmg.Data = make(map[string]string)
@@ -271,7 +272,7 @@ var _ = Describe("Sosreport controller", func() {
 			}
 
 			// Make sure that the ConfigMap really gets created
-			configMapLookupKey := types.NamespacedName{Name: GLOBAL_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
+			configMapLookupKey := types.NamespacedName{Name: DEVELOPMENT_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
 			createdConfigMap := &corev1.ConfigMap{}
 			// We'll need to retry getting this newly created ConfigMap, given that creation may not immediately happen.
 			Eventually(func() bool {
