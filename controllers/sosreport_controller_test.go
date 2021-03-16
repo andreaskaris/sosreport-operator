@@ -215,7 +215,16 @@ var _ = Describe("Sosreport controller", func() {
 					client.ObjectKey{Name: "system:openshift:scc:privileged"},
 					crb,
 				)
-				Expect(err).ShouldNot(HaveOccurred())
+				if err != nil {
+					By("Creating Privileged SCC ClusterRoleBinding")
+					crb.Name = "system:openshift:scc:privileged"
+					crb.RoleRef = rbacv1.RoleRef{
+						APIGroup: "rbac.authorization.k8s.io",
+						Kind:     "ClusterRole",
+						Name:     "system:openshift:scc:privileged",
+					}
+					Expect(k8sClient.Create(ctx, crb)).Should(Succeed())
+				}
 
 				By("Setting Privileged SCC for the namespace")
 				crbFound := false

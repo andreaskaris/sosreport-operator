@@ -10,7 +10,7 @@ metadata:
   namespace: "openshift-marketplace"
 spec:
   sourceType: grpc
-  image: "quay.io/akaris/sosreport-operator-index:0.0.1"
+  image: "quay.io/akaris/sosreport-operator-index:0.0.2"
 EOF
 oc apply -f catalogsource.yaml
 ~~~
@@ -65,10 +65,10 @@ NAME                              PACKAGE              SOURCE                   
 sosreport-operator-subscription   sosreport-operator   sosreport-operator-manifests   alpha
 [root@openshift-jumpserver-0 sosreport-operator]# oc get installplan
 NAME            CSV                         APPROVAL    APPROVED
-install-cgrvj   sosreport-operator.v0.0.1   Automatic   true
+install-cgrvj   sosreport-operator.v0.0.2   Automatic   true
 [root@openshift-jumpserver-0 sosreport-operator]# oc get csv
 NAME                        DISPLAY              VERSION   REPLACES   PHASE
-sosreport-operator.v0.0.1   sosreport-operator   0.0.1                Succeeded
+sosreport-operator.v0.0.2   sosreport-operator   0.0.2                Succeeded
 [root@openshift-jumpserver-0 sosreport-operator]# oc get pods
 NAME                                                     READY   STATUS    RESTARTS   AGE
 sosreport-operator-controller-manager-7b4775d7b4-rzvnm   2/2     Running   0          14m
@@ -316,7 +316,7 @@ EOF
 
 You can monitor the sosreport generation and upload progress by following a Pod's logs, for example with:
 ~~~
-$ oc logs -f sosreport-sample-openshift-worker-0-20210308103224-kwcbx
+$ oc logs -f sosreport-sample-openshift-worker-0-20210.0.203224-kwcbx
 ~~~
 
 Towards the end of the log, you should see:

@@ -5,4 +5,4 @@ metadata:
   namespace: olm
 spec:
   sourceType: grpc
-  image: kind:5000/sosreport-operator-index:v0.0.1
+  image: kind:5000/sosreport-operator-index:v0.0.2

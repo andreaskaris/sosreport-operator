@@ -1,6 +1,16 @@
-# sosreport-operator
+# Sosreport Operator - Developer's Guide
 
 This guide contains building and installation instructions. See [USERGUIDE.md](USERGUIDE.md) for the user guide.
+
+## OperatorSDK dependency
+
+This project was built with OperatorSDK version 1.2.0. Make sure to install it.
+~~~
+git clone https://github.com/operator-framework/operator-sdk
+cd operator-sdk
+git checkout v1.2.0
+make install
+~~~
 
 ## Building and testing locally 
 
@@ -85,7 +95,7 @@ To remove the operator again:
 make undeploy
 ~~~
 
-> quai.io will automatically build images from the latest commit
+> quai.io will automatically build images from the latest tag in format `x.x.x`
 
 > Make sure that ConfigMap `sosreport-global-configuration` field `sosreport-image` points to `quay.io/akaris/sosreport-centos:main` (that's also the default if unset)
 
@@ -126,7 +136,7 @@ make bundle-validate-podman REGISTRY=registry.example.com:5000
 make bundle REGISTRY=quay.io/akaris
 ~~~
 
-Now, simply commit the current snapshot of the repository with a valid tag (e.g. 0.0.1).
+Now, simply commit the current snapshot of the repository with a valid tag (e.g. 0.0.2).
 
 Quay will automatically build an image from the tag.
 

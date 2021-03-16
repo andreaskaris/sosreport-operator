@@ -21,9 +21,9 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    operators.operatorframework.io/builder: operator-sdk-v1.4.2
+    operators.operatorframework.io/builder: operator-sdk-v1.2.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
-  name: sosreport-operator.v0.0.1
+  name: sosreport-operator.v0.0.2
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -248,7 +248,7 @@ spec:
                 - --enable-leader-election
                 command:
                 - /manager
-                image: quay.io/akaris/sosreport-operator:0.0.1
+                image: quay.io/akaris/sosreport-operator:0.0.2
                 name: manager
                 resources:
                   limits:
@@ -312,4 +312,5 @@ spec:
   provider:
     name: akaris
     url: https://github.com/andreaskaris/sosreport-operator
-  version: 0.0.1
+  replaces: sosreport-operator.v0.0.1
+  version: 0.0.2

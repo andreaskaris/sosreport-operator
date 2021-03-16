@@ -54,7 +54,7 @@ const (
 	DEVELOPMENT_CONFIG_MAP_NAME   = "sosreport-development-configuration"   // name of the global ConfigMap with overrides
 	UPLOAD_CONFIG_MAP_NAME        = "sosreport-upload-configuration"        // name of the upload ConfigMap
 	UPLOAD_SECRET_NAME            = "sosreport-upload-secret"               // name of the Secret for upload authentication
-	DEFAULT_IMAGE_NAME            = "quay.io/akaris/sosreport-centos:0.0.1" // to point to final version of sosreport IMAGE
+	DEFAULT_IMAGE_NAME            = "quay.io/akaris/sosreport-centos:0.0.2" // to point to final version of sosreport IMAGE
 	DEFAULT_SOSREPORT_COMMAND     = "bash /scripts/entrypoint.sh"           // to point to the entrypoint
 	DEFAULT_SOSREPORT_CONCURRENCY = 1
 	DEFAULT_LOGLEVEL              = 1
