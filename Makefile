@@ -243,3 +243,7 @@ install-operator-sdk:
 	cd operator-sdk
 	git checkout v1.2.0
 	make install
+
+publish-version:
+	bash publish-version.sh $(VERSION)
+
