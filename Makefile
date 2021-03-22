@@ -235,3 +235,11 @@ deploy-index-subscription:
 undeploy-index-subscription:
 	kubectl delete -f /tmp/catalogsources/subscription.yaml
 	kubectl delete -f /tmp/catalogsources/catalogsource.yaml
+
+
+install-operator-sdk:
+	cd ~
+	git clone https://github.com/operator-framework/operator-sdk
+	cd operator-sdk
+	git checkout v1.2.0
+	make install
