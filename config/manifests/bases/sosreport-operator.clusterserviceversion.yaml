@@ -4,9 +4,9 @@ metadata:
   annotations:
     alm-examples: '[]'
     capabilities: Basic Install
+    categories: Monitoring
     operators.operatorframework.io/builder: operator-sdk-v1.2.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
-    categories: Monitoring
   name: sosreport-operator.v0.0.0
   namespace: placeholder
 spec:
