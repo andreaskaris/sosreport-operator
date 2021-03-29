@@ -14,3 +14,5 @@ git checkout sosreport-operator-${VERSION}
 rm -Rf community-operators/sosreport-operator/$VERSION
 mkdir -p community-operators/sosreport-operator/$VERSION
 cp -a $DIR/bundle/* community-operators/sosreport-operator/$VERSION/.
+cp $DIR/bundle.Dockerfile community-operators/sosreport-operator/$VERSION/Dockerfile
+sed -i "s# bundle/# #" community-operators/sosreport-operator/$VERSION/Dockerfile
