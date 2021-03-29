@@ -26,6 +26,10 @@ USE_EXISTING_CLUSTER=false
 # Default OLM, for OpenShift overwrite to openshift-marketplace
 CATALOG_SOURCE_NAMESPACE ?= "olm"
 
+# Default Bundle Channel
+# sets operators.operatorframework.io.bundle.channel.default.v1
+DEFAULT_CHANNEL="alpha"
+
 # Options for 'bundle-build'
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
