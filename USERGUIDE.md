@@ -1,77 +1,38 @@
 ## Installing on OpenShift
 
-First, deploy the catalog source:
-~~~
-cat <<'EOF' > catalogsource.yaml
-apiVersion: operators.coreos.com/v1alpha1
-kind: CatalogSource
-metadata:
-  name: sosreport-operator-manifests
-  namespace: "openshift-marketplace"
-spec:
-  sourceType: grpc
-  image: "quay.io/akaris/sosreport-operator-index:0.0.2"
-EOF
-oc apply -f catalogsource.yaml
-~~~
-
-Verify with the following commands:
-~~~
-[root@openshift-jumpserver-0 sosreport-operator]# oc get catalogsources  -A | grep sosreport
-openshift-marketplace   sosreport-operator-manifests 
-[root@openshift-jumpserver-0 sosreport-operator]# oc get packagemanifests -A | grep sosreport
-openshift-marketplace   sosreport-operator 
-~~~
-
-Then, deploy the Operator:
+Deploy the operator from the console's Operator hub (search for `sos`) or with:
 ~~~
 cat <<'EOF' > subscription.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: sosreport-operator
-spec: {}
----
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: sosreport-og
-  namespace: sosreport-operator
-spec: {}
----
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
-  name: sosreport-operator-subscription
-  namespace: sosreport-operator
+  name: sosreport-operator
+  namespace: openshift-operators
 spec:
   channel: alpha
+  installPlanApproval: Automatic
   name: sosreport-operator
-  source: sosreport-operator-manifests
-  sourceNamespace: "openshift-marketplace"
+  source: community-operators
+  sourceNamespace: openshift-marketplace
+  startingCSV: sosreport-operator.v0.0.2
 EOF
 oc apply -f subscription.yaml
 ~~~
 
 Verify with the following commands:
 ~~~
-[root@openshift-jumpserver-0 sosreport-operator]# oc project sosreport-operator
-Now using project "sosreport-operator" on server "https://api.cluster.example.com:6443".
-[root@openshift-jumpserver-0 sosreport-operator]# oc get og
-NAME           AGE
-sosreport-og   27m
-[root@openshift-jumpserver-0 sosreport-operator]# oc get sub
-NAME                              PACKAGE              SOURCE                         CHANNEL
-sosreport-operator-subscription   sosreport-operator   sosreport-operator-manifests   alpha
-[root@openshift-jumpserver-0 sosreport-operator]# oc get installplan
+$ oc get -n openshift-operators installplan 
 NAME            CSV                         APPROVAL    APPROVED
-install-cgrvj   sosreport-operator.v0.0.2   Automatic   true
-[root@openshift-jumpserver-0 sosreport-operator]# oc get csv
+install-8hgh4   sosreport-operator.v0.0.2   Automatic   true
+$ oc get -n openshift-operators csv
 NAME                        DISPLAY              VERSION   REPLACES   PHASE
 sosreport-operator.v0.0.2   sosreport-operator   0.0.2                Succeeded
-[root@openshift-jumpserver-0 sosreport-operator]# oc get pods
+$ oc get -n openshift-operators sub
+NAME                 PACKAGE              SOURCE                CHANNEL
+sosreport-operator   sosreport-operator   community-operators   alpha
+$ oc get pods -n openshift-operators
 NAME                                                     READY   STATUS    RESTARTS   AGE
-sosreport-operator-controller-manager-7b4775d7b4-rzvnm   2/2     Running   0          14m
+sosreport-operator-controller-manager-7b997f9c49-n2svc   2/2     Running   0          4m39s
 ~~~
 
 ## Creating Sosreports
