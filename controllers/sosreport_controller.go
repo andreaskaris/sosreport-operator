@@ -741,7 +741,17 @@ Return a single job
 */
 func (r *SosreportReconciler) jobForSosreport(nodeName string, environmentMap map[string]string, s *supportv1alpha1.Sosreport) (*batchv1.Job, *corev1.PersistentVolumeClaim, error) {
 	layout := "20060102150405"
-	jobName := fmt.Sprintf("%s-%s-%s", s.Name, nodeName, time.Now().Format(layout))
+
+	// fix https://github.com/andreaskaris/sosreport-operator/issues/21
+	// only take the short hostname and cut off the shortName at 48 characters
+	// also account for the pvc name overhead of 4 characters
+	maxLen := 63 - 2 - len(s.Name) - len(layout) - 4
+	shortName := strings.Split(nodeName, ".")[0]
+	if len(shortName) > maxLen {
+		shortName = shortName[:maxLen]
+	}
+
+	jobName := fmt.Sprintf("%s-%s-%s", s.Name, shortName, time.Now().Format(layout))
 	pvcName := fmt.Sprintf("%s-pvc", jobName)
 	labels := r.labelsForSosreportJob(s.Name)
 
