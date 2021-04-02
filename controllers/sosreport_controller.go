@@ -565,7 +565,8 @@ func (r *SosreportReconciler) scheduleSosreportJobs(s *supportv1alpha1.Sosreport
 	for _, node := range nodeList.Items {
 		// exclude nodes with Taints which do not match Toleration
 		if r.tolerates(s, node) {
-			nodeNameList[node.Name] = struct{}{}
+			nodeName := node.Labels["kubernetes.io/hostname"]
+			nodeNameList[nodeName] = struct{}{}
 		} else {
 			log.V(r.sosreportLogLevel).Info("Node is not tolerated by Sosreport, skipping", "node.Name", node.Name, "node.Spec.Taints", node.Spec.Taints, "s.Spec.Tolerations", s.Spec.Tolerations)
 		}

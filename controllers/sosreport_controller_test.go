@@ -108,6 +108,7 @@ var _ = Describe("Sosreport controller", func() {
 						Name: "master-0",
 						Labels: map[string]string{
 							"node-role.kubernetes.io/master": "",
+							"kubernetes.io/hostname":         "master-0",
 						},
 					},
 					Spec: corev1.NodeSpec{
@@ -131,6 +132,7 @@ var _ = Describe("Sosreport controller", func() {
 						Name: "worker-0",
 						Labels: map[string]string{
 							"node-role.kubernetes.io/worker": "",
+							"kubernetes.io/hostname":         "worker-0",
 						},
 					},
 				}
@@ -146,6 +148,7 @@ var _ = Describe("Sosreport controller", func() {
 						Name: "worker-1",
 						Labels: map[string]string{
 							"node-role.kubernetes.io/worker": "",
+							"kubernetes.io/hostname":         "worker-1",
 						},
 					},
 				}
@@ -161,6 +164,7 @@ var _ = Describe("Sosreport controller", func() {
 						Name: "worker-2",
 						Labels: map[string]string{
 							"node-role.kubernetes.io/worker": "",
+							"kubernetes.io/hostname":         "worker-2",
 						},
 					},
 					Spec: corev1.NodeSpec{
