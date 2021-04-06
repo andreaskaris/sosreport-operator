@@ -20,6 +20,8 @@ import (
 	"flag"
 	"os"
 
+	upstreamzap "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -53,7 +55,23 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
+	// start at the InfoLevel - do not log debug
+	logLevel := &controllers.SosreportLogLevel{
+		MinLevel: zapcore.InfoLevel,
+	}
+
+	// dynamically change loglevel by only printing if the level is higher than loglevel.Minlevel
+	var levelEnablerFunc = upstreamzap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return lvl >= logLevel.MinLevel
+	})
+
+	// set logger and set dynamicc logging level function
+	ctrl.SetLogger(
+		zap.New(
+			zap.UseDevMode(true),
+			zap.Level(levelEnablerFunc),
+		),
+	)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
@@ -69,9 +87,10 @@ func main() {
 	}
 
 	if err = (&controllers.SosreportReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Sosreport"),
-		Scheme: mgr.GetScheme(),
+		Client:          mgr.GetClient(),
+		Log:             ctrl.Log.WithName("controllers").WithName("Sosreport"),
+		DynamicLogLevel: logLevel,
+		Scheme:          mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Sosreport")
 		os.Exit(1)

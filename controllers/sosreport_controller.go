@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -57,18 +58,24 @@ const (
 	DEFAULT_IMAGE_NAME            = "quay.io/akaris/sosreport-centos:0.0.2" // to point to final version of sosreport IMAGE
 	DEFAULT_SOSREPORT_COMMAND     = "bash /scripts/entrypoint.sh"           // to point to the entrypoint
 	DEFAULT_SOSREPORT_CONCURRENCY = 1
-	DEFAULT_LOGLEVEL              = 1
 	DEFAULT_PVC_SIZE              = "10Gi"
 	DEFAULT_IMAGE_PULL_POLICY     = ""   // Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
 	IS_DEVELOPER_MODE             = true // potentially unsafe settings that can easily be disabled
+	DEBUG                         = 1
+	INFO                          = 0
 )
+
+type SosreportLogLevel struct {
+	MinLevel zapcore.Level
+}
 
 // SosreportReconciler reconciles a Sosreport object
 type SosreportReconciler struct {
 	client.Client
-	Log      logr.Logger
-	Scheme   *runtime.Scheme
-	recorder record.EventRecorder
+	Log             logr.Logger
+	DynamicLogLevel *SosreportLogLevel
+	Scheme          *runtime.Scheme
+	recorder        record.EventRecorder
 	// the runList takes care of race conditions due to caching delay
 	// a sosreport on the runList will not be run again
 	runList map[types.UID]struct{}
@@ -79,7 +86,6 @@ type SosreportReconciler struct {
 	imageName            string                            // name of the soreport job's image
 	sosreportCommand     string                            // command to run for the sosreport image
 	sosreportConcurrency int                               // command to run for the sosreport image
-	sosreportLogLevel    int
 	pvcStorageClass      string
 	pvcCapacity          string
 	imagePullPolicy      string
@@ -111,12 +117,12 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx = context.Background()
 	log = r.Log.WithValues("sosreport", req.NamespacedName)
 
-	log.V(DEFAULT_LOGLEVEL).Info("Reconciler loop triggered")
+	log.V(DEBUG).Info("Reconciler loop triggered")
 
 	// retrieve sosreport CR to be reconciliated
 	sosreport := &supportv1alpha1.Sosreport{}
 	if err := r.Get(ctx, req.NamespacedName, sosreport); err != nil {
-		log.V(DEFAULT_LOGLEVEL).Info("Failed to get Sosreport custom resource - was it deleted?")
+		log.V(DEBUG).Info("Failed to get Sosreport custom resource - was it deleted?")
 		//log.Error(err, "Failed to get Sosreport custom resource - was it deleted?")
 		// return ctrl.Result{}, err
 		return ctrl.Result{}, nil
@@ -146,7 +152,7 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// and if its status.inProgress is false
 	_, inRunlist := r.runList[sosreport.UID]
 	if !inRunlist && sosreport.Status.InProgress == false {
-		log.V(r.sosreportLogLevel).Info("Starting sosreport jobs")
+		log.V(INFO).Info("Starting sosreport jobs")
 		var err error
 		r.runList[sosreport.UID] = struct{}{}
 
@@ -156,7 +162,7 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Error(err, "unable to schedule sosreport jobs")
 			return ctrl.Result{}, err
 		}
-		log.V(r.sosreportLogLevel).Info("Updating sosreport status", "sosreport.Status.InProgress", sosreport.Status.InProgress)
+		log.V(DEBUG).Info("Updating sosreport status", "sosreport.Status.InProgress", sosreport.Status.InProgress)
 		r.updateStatus(sosreport)
 	} else {
 		// synchronize job running cache - in case this sosreport controller was restarted
@@ -175,8 +181,12 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.Error(err, "unable to run sosreport jobs")
 			return ctrl.Result{}, err
 		}
+
+		// copy the annotation for running-list and to-run-list into the Status field
+		r.synchronizeRunningStatus(sosreport, req)
+
 		if r.isSosreportJobsDone(sosreport) {
-			log.V(r.sosreportLogLevel).Info("Sosreport generation done")
+			log.V(INFO).Info("Sosreport generation done")
 			sosreport.Status.InProgress = false
 			sosreport.Status.Finished = true
 			r.updateStatus(sosreport)
@@ -184,6 +194,36 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *SosreportReconciler) synchronizeRunningStatus(s *supportv1alpha1.Sosreport, req ctrl.Request) {
+	var jobRunningList []string
+	var jobToRunList []string
+
+	if annotationJson, ok := s.Annotations["job-running-list"]; ok {
+		annotationData := make(map[string]struct{})
+		if err := json.Unmarshal([]byte(annotationJson), &annotationData); err == nil {
+			for k, _ := range annotationData {
+				jobRunningList = append(jobRunningList, k)
+			}
+		}
+	}
+	if annotationJson, ok := s.Annotations["job-to-run-list"]; ok {
+		annotationData := make(map[string]struct{})
+		if err := json.Unmarshal([]byte(annotationJson), &annotationData); err == nil {
+			for k, _ := range annotationData {
+				jobToRunList = append(jobToRunList, k)
+			}
+		}
+	}
+
+	// to be changed
+	updateStatus := true
+	s.Status.CurrentlyRunningNodes = jobRunningList
+	s.Status.OutstandingNodes = jobToRunList
+	if updateStatus {
+		r.updateStatus(s)
+	}
 }
 
 /*
@@ -221,26 +261,29 @@ This method reads custom configuration from a configmap that allows admins to ov
 */
 func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *supportv1alpha1.Sosreport, req ctrl.Request) {
 	sosreportConcurrency := DEFAULT_SOSREPORT_CONCURRENCY
-	sosreportLogLevel := DEFAULT_LOGLEVEL
+	sosreportDebug := false
 	pvcStorageClass := ""
 	pvcCapacity := DEFAULT_PVC_SIZE
 
-	cm, err := r.getSosreportConfigMap(GLOBAL_CONFIG_MAP_NAME, s, req)
+	cm, err := r.getSosreportConfigMap(DEVELOPMENT_CONFIG_MAP_NAME, s, req)
 	if err == nil {
-		sosreportLogLevelCm, ok := cm.Data["log-level"]
+		sosreportDebugCm, ok := cm.Data["debug"]
 		if ok {
-			if lc, err := strconv.Atoi(sosreportLogLevelCm); err == nil {
-				sosreportLogLevel = lc
+			if sosreportDebugCm == "true" {
+				sosreportDebug = true
 			} else {
-				log.V(DEFAULT_LOGLEVEL).Info("Cannot parse log level", "logLevel", sosreportLogLevelCm)
+				sosreportDebug = false
 			}
 		}
+	}
+	cm, err = r.getSosreportConfigMap(GLOBAL_CONFIG_MAP_NAME, s, req)
+	if err == nil {
 		sosreportConcurrencyCm, ok := cm.Data["concurrency"]
 		if ok {
 			if ic, err := strconv.Atoi(sosreportConcurrencyCm); err == nil {
 				sosreportConcurrency = ic
 			} else {
-				log.V(DEFAULT_LOGLEVEL).Info("Cannot parse concurrency", "concurrency", sosreportConcurrencyCm)
+				log.V(INFO).Info("Cannot parse concurrency", "concurrency", sosreportConcurrencyCm)
 			}
 		}
 		pvcStorageClassCm, ok := cm.Data["pvc-storage-class"]
@@ -252,13 +295,17 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 			pvcCapacity = pvcCapacityCm
 		}
 	}
-	log.V(DEFAULT_LOGLEVEL).Info("Setting loglevel to", "sosreportLogLevel", sosreportLogLevel)
-	r.sosreportLogLevel = sosreportLogLevel
-	log.V(r.sosreportLogLevel).Info("Using concurrency", "concurrency", sosreportConcurrency)
+	log.V(DEBUG).Info("Setting loglevel to", "sosreportDebug", sosreportDebug)
+	if sosreportDebug {
+		r.DynamicLogLevel.MinLevel = zapcore.DebugLevel
+	} else {
+		r.DynamicLogLevel.MinLevel = zapcore.InfoLevel
+	}
+	log.V(DEBUG).Info("Using concurrency", "concurrency", sosreportConcurrency)
 	r.sosreportConcurrency = sosreportConcurrency
-	log.V(r.sosreportLogLevel).Info("PVC storage class", "pvcStorageClass", pvcStorageClass)
+	log.V(DEBUG).Info("PVC storage class", "pvcStorageClass", pvcStorageClass)
 	r.pvcStorageClass = pvcStorageClass
-	log.V(r.sosreportLogLevel).Info("PVC capacity", "pvcCapacity", pvcCapacity)
+	log.V(DEBUG).Info("PVC capacity", "pvcCapacity", pvcCapacity)
 	r.pvcCapacity = pvcCapacity
 }
 
@@ -290,11 +337,11 @@ func (r *SosreportReconciler) setDevelopmentSosreportReconcilerConfiguration(s *
 			}
 		}
 	}
-	log.V(r.sosreportLogLevel).Info("Using sosreport-image", "sosreport-image", sosreportImage)
+	log.V(DEBUG).Info("Using sosreport-image", "sosreport-image", sosreportImage)
 	r.imageName = sosreportImage
-	log.V(r.sosreportLogLevel).Info("Using sosreport-command", "sosreport-command", sosreportCommand)
+	log.V(DEBUG).Info("Using sosreport-command", "sosreport-command", sosreportCommand)
 	r.sosreportCommand = sosreportCommand
-	log.V(r.sosreportLogLevel).Info("ImagePullPolicy", "imagePullPolicy", imagePullPolicy)
+	log.V(DEBUG).Info("ImagePullPolicy", "imagePullPolicy", imagePullPolicy)
 	r.imagePullPolicy = imagePullPolicy
 }
 
@@ -361,9 +408,9 @@ This method retrieves the config map which is used for configuration overrides
 func (r *SosreportReconciler) getSosreportConfigMap(configMapName string, s *supportv1alpha1.Sosreport, req ctrl.Request) (*corev1.ConfigMap, error) {
 	cm := &corev1.ConfigMap{}
 	nn := types.NamespacedName{Name: configMapName, Namespace: req.Namespace}
-	log.V(r.sosreportLogLevel).Info("Retrieving ConfigMap", "NamespacedName", nn)
+	log.V(DEBUG).Info("Retrieving ConfigMap", "NamespacedName", nn)
 	if err := r.Get(ctx, nn, cm); err != nil {
-		log.V(r.sosreportLogLevel).Info("unable to get configuration configmap", "err", err)
+		log.V(INFO).Info("unable to get configuration configmap", "err", err)
 		return nil, err
 	}
 	return cm, nil
@@ -375,9 +422,9 @@ This method retrieves the secret which is used for sosreport attachment authenti
 func (r *SosreportReconciler) getSosreportSecret(s *supportv1alpha1.Sosreport, req ctrl.Request) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
 	nn := types.NamespacedName{Name: UPLOAD_SECRET_NAME, Namespace: req.Namespace}
-	log.V(r.sosreportLogLevel).Info("Retrieving Secret", "NamespacedName", nn)
+	log.V(DEBUG).Info("Retrieving Secret", "NamespacedName", nn)
 	if err := r.Get(ctx, nn, secret); err != nil {
-		log.V(r.sosreportLogLevel).Info("unable to get authentication Secret", "err", err)
+		log.V(INFO).Info("unable to get authentication Secret", "err", err)
 		return nil, err
 	}
 	return secret, nil
@@ -388,9 +435,9 @@ Update the "Sosreport" CR
 */
 func (r *SosreportReconciler) update(s *supportv1alpha1.Sosreport) {
 	// update Sosreport resource
-	log.V(r.sosreportLogLevel).Info("Updating sosreport CR")
+	log.V(DEBUG).Info("Updating sosreport CR")
 	if err := r.Update(ctx, s); err != nil {
-		log.V(r.sosreportLogLevel).Info("unable to update Sosreport CR", "err", err)
+		log.V(INFO).Info("unable to update Sosreport CR", "err", err)
 	}
 }
 
@@ -399,9 +446,9 @@ Update the "Sosreport" CR's status
 */
 func (r *SosreportReconciler) updateStatus(s *supportv1alpha1.Sosreport) {
 	// update Sosreport resource status
-	log.V(r.sosreportLogLevel).Info("Updating sosreport resource status")
+	log.V(DEBUG).Info("Updating sosreport resource status")
 	if err := r.Status().Update(ctx, s); err != nil {
-		log.V(r.sosreportLogLevel).Info("unable to update Sosreport status", "err", err)
+		log.V(INFO).Info("unable to update Sosreport status", "err", err)
 	}
 }
 
@@ -425,13 +472,13 @@ func (r *SosreportReconciler) getSosreportJobs(s *supportv1alpha1.Sosreport, req
 		if ownerReference == nil {
 			continue
 		}
-		log.V(r.sosreportLogLevel).Info("Inspecting sosreport job's owner",
+		log.V(DEBUG).Info("Inspecting sosreport job's owner",
 			"Name", sosreportJob.Name,
 			"ownerReference.Kind", ownerReference.Kind,
 			"ownerReference.UID", ownerReference.UID,
 			"sosreport.UID", s.UID)
 		if ownerReference.Kind == "Sosreport" && ownerReference.UID == s.UID {
-			log.V(r.sosreportLogLevel).Info("ownerReference matches sosreport", "Kind", ownerReference.Kind,
+			log.V(DEBUG).Info("ownerReference matches sosreport", "Kind", ownerReference.Kind,
 				"UID", ownerReference.UID)
 			controllerSosreportJobs.Items = append(controllerSosreportJobs.Items, sosreportJob)
 		}
@@ -450,12 +497,12 @@ func (r *SosreportReconciler) dequeueSosreportJobsDone(s *supportv1alpha1.Sosrep
 		return err
 	}
 	for _, sosreportJob := range sosreportJobs.Items {
-		log.V(r.sosreportLogLevel).Info("Inspecting sosreport job", "Name", sosreportJob.Name)
+		log.V(DEBUG).Info("Inspecting sosreport job", "Name", sosreportJob.Name)
 		if done, _ := isJobDone(sosreportJob); !done {
-			log.V(r.sosreportLogLevel).Info("sosreport job is still running", "Name", sosreportJob.Name)
+			log.V(DEBUG).Info("sosreport job is still running", "Name", sosreportJob.Name)
 		} else {
 			// delete from jobRunningList and report an event
-			log.V(r.sosreportLogLevel).Info("Delete job from jobRunningList", "sosreportJob.Annotations[\"nodeName\"]", sosreportJob.Annotations["nodeName"], "r.jobRunningList[s.UID]", r.jobRunningList[s.UID])
+			log.V(DEBUG).Info("Delete job from jobRunningList", "sosreportJob.Annotations[\"nodeName\"]", sosreportJob.Annotations["nodeName"], "r.jobRunningList[s.UID]", r.jobRunningList[s.UID])
 			if _, ok := r.jobRunningList[s.UID][sosreportJob.Annotations["nodeName"]]; ok {
 				r.recorder.Event(s,
 					corev1.EventTypeNormal,
@@ -516,14 +563,14 @@ Determine if the sosreport CR tolerates a specific node
 */
 func (r *SosreportReconciler) tolerates(s *supportv1alpha1.Sosreport, n corev1.Node) bool {
 	for _, taint := range n.Spec.Taints {
-		log.V(r.sosreportLogLevel).Info("Checking taint", "taint", taint)
+		log.V(DEBUG).Info("Checking taint", "taint", taint)
 
 		if len(s.Spec.Tolerations) == 0 {
 			return false
 		}
 
 		for ti, toleration := range s.Spec.Tolerations {
-			log.V(r.sosreportLogLevel).Info("Checking toleration", "toleration", toleration, "ti", ti)
+			log.V(DEBUG).Info("Checking toleration", "toleration", toleration, "ti", ti)
 
 			if toleration.ToleratesTaint(&taint) {
 				// break the inner loop and check the next Taint
@@ -546,7 +593,7 @@ Schedule jobs for this sosreport on Nodes which match the NodeSelector.
 func (r *SosreportReconciler) scheduleSosreportJobs(s *supportv1alpha1.Sosreport, req ctrl.Request) (bool, error) {
 	// implement loop through nodes that are matched by sosreport's NodeSelector
 	nodeList := &corev1.NodeList{}
-	log.V(r.sosreportLogLevel).Info("Using NodeSelector", "s.Spec.NodeSelector", s.Spec.NodeSelector)
+	log.V(DEBUG).Info("Using NodeSelector", "s.Spec.NodeSelector", s.Spec.NodeSelector)
 	listOpts := []client.ListOption{
 		client.MatchingLabels(s.Spec.NodeSelector),
 	}
@@ -554,7 +601,7 @@ func (r *SosreportReconciler) scheduleSosreportJobs(s *supportv1alpha1.Sosreport
 		return false, err
 	}
 	if len(nodeList.Items) == 0 {
-		log.V(r.sosreportLogLevel).Info("Failed to list eligible nodes",
+		log.V(INFO).Info("Failed to list eligible nodes",
 			"Sosreport.Namespace", s.Namespace,
 			"Sosreport.Name", s.Name,
 		)
@@ -568,7 +615,7 @@ func (r *SosreportReconciler) scheduleSosreportJobs(s *supportv1alpha1.Sosreport
 			nodeName := node.Labels["kubernetes.io/hostname"]
 			nodeNameList[nodeName] = struct{}{}
 		} else {
-			log.V(r.sosreportLogLevel).Info("Node is not tolerated by Sosreport, skipping", "node.Name", node.Name, "node.Spec.Taints", node.Spec.Taints, "s.Spec.Tolerations", s.Spec.Tolerations)
+			log.V(INFO).Info("Node is not tolerated by Sosreport, skipping", "node.Name", node.Name, "node.Spec.Taints", node.Spec.Taints, "s.Spec.Tolerations", s.Spec.Tolerations)
 		}
 	}
 
@@ -609,13 +656,13 @@ Synchronize annotation with cache - in case the sosreport operator is restarted
 func (r *SosreportReconciler) synchronizeJobRunningCache(s *supportv1alpha1.Sosreport, req ctrl.Request) error {
 	// the sosreport operator might have been restarted in the middle of a sosreport run
 	if _, inRunList := r.jobToRunList[s.UID]; !inRunList {
-		log.V(r.sosreportLogLevel).Info("Current jobToRunList for this job does not exist. Trying to load jobToRunList from s.Annotations[\"job-to-run-list\"]")
+		log.V(DEBUG).Info("Current jobToRunList for this job does not exist. Trying to load jobToRunList from s.Annotations[\"job-to-run-list\"]")
 		if annotationJson, annotationExists := s.Annotations["job-to-run-list"]; annotationExists {
-			log.V(r.sosreportLogLevel).Info("Annotation exists. Updating r.jobToRunList[s.UID]")
+			log.V(INFO).Info("Annotation exists. Updating r.jobToRunList[s.UID]")
 			annotationData := make(map[string]struct{})
 			if err := json.Unmarshal([]byte(annotationJson), &annotationData); err == nil {
 				r.jobToRunList[s.UID] = annotationData
-				log.V(r.sosreportLogLevel).Info("Value is", "r.jobToRunList[s.UID]", r.jobToRunList[s.UID])
+				log.V(INFO).Info("Value is", "r.jobToRunList[s.UID]", r.jobToRunList[s.UID])
 			} else {
 				log.Error(err, "Failed to unmarshal annotation", "s.Annotations[\"job-to-run-list\"]", annotationJson)
 				return err
@@ -625,13 +672,13 @@ func (r *SosreportReconciler) synchronizeJobRunningCache(s *supportv1alpha1.Sosr
 
 	// the sosreport operator might have been restarted in the middle of a sosreport run
 	if _, inRunList := r.jobRunningList[s.UID]; !inRunList {
-		log.V(r.sosreportLogLevel).Info("Current jobRunningList for this job does not exist. Trying to load jobRunningList from s.Annotations[\"job-running-list\"]")
+		log.V(DEBUG).Info("Current jobRunningList for this job does not exist. Trying to load jobRunningList from s.Annotations[\"job-running-list\"]")
 		if annotationJson, annotationExists := s.Annotations["job-running-list"]; annotationExists {
-			log.V(r.sosreportLogLevel).Info("Annotation exists. Updating r.jobRunningList[s.UID]")
+			log.V(INFO).Info("Annotation exists. Updating r.jobRunningList[s.UID]")
 			annotationData := make(map[string]struct{})
 			if err := json.Unmarshal([]byte(annotationJson), &annotationData); err == nil {
 				r.jobRunningList[s.UID] = annotationData
-				log.V(r.sosreportLogLevel).Info("Value is", "r.jobRunningList[s.UID]", r.jobRunningList[s.UID])
+				log.V(INFO).Info("Value is", "r.jobRunningList[s.UID]", r.jobRunningList[s.UID])
 			} else {
 				log.Error(err, "Failed to unmarshal annotation", "s.Annotations[\"job-running-list\"]", annotationJson)
 				return err
@@ -652,7 +699,7 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req
 	configurationMap := r.getEnvConfigurationFromConfigMapAndSecret(s, req)
 
 	maxNewSosreports := r.sosreportConcurrency - len(r.jobRunningList[s.UID])
-	log.V(r.sosreportLogLevel).Info("runSosreportJobs",
+	log.V(DEBUG).Info("runSosreportJobs",
 		"r.sosreportConcurrency", r.sosreportConcurrency,
 		"len(r.jobRunningList[s.UID])", len(r.jobRunningList[s.UID]))
 	i := 0
@@ -669,7 +716,7 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req
 			continue
 		}
 		// Create the pvc
-		log.V(r.sosreportLogLevel).Info("Creating new PVC", "Job.Namespace", job.Namespace, "Job.Name", pvc.Name)
+		log.V(INFO).Info("Creating new PVC", "Job.Namespace", job.Namespace, "Job.Name", pvc.Name)
 		err = r.Create(ctx, pvc)
 		if err != nil {
 			log.Error(err, "Failed to create new PVC", "Job.Namespace", job.Namespace, "Job.Name", pvc.Name)
@@ -677,7 +724,7 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req
 		}
 
 		// Create the job
-		log.V(r.sosreportLogLevel).Info("Creating new job", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
+		log.V(INFO).Info("Creating new job", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
 		err = r.Create(ctx, job)
 		if err != nil {
 			log.Error(err, "Failed to create new Job", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
@@ -874,14 +921,14 @@ func getTemplatesDir() (string, error) {
 		if _, err := os.Stat(d); err != nil {
 			if os.IsNotExist(err) {
 				// file does not exist
-				log.V(DEFAULT_LOGLEVEL).Info("Dir '" + d + "' does not exist, skipping")
+				log.V(INFO).Info("Dir '" + d + "' does not exist, skipping")
 			} else {
 				// other error
-				log.V(DEFAULT_LOGLEVEL).Info("Other issue with dir '" + d + "': " + err.Error())
+				log.V(INFO).Info("Other issue with dir '" + d + "': " + err.Error())
 			}
 			continue
 		}
-		log.V(DEFAULT_LOGLEVEL).Info("Base directory is: " + d)
+		log.V(DEBUG).Info("Base directory is: " + d)
 		return d, nil
 	}
 

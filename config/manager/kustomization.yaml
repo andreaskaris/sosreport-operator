@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/akaris/sosreport-operator
-  newTag: 0.0.2
+  newTag: latest

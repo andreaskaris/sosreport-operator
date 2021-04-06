@@ -23,6 +23,9 @@ spec:
     - jsonPath: .status.inprogress
       name: In Progress
       type: boolean
+    - jsonPath: .status.currentlyrunningnodes
+      name: Currently Running Nodes
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -95,6 +98,10 @@ spec:
           status:
             description: SosreportStatus defines the observed state of Sosreport
             properties:
+              currentlyrunningnodes:
+                items:
+                  type: string
+                type: array
               finished:
                 description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
                   of cluster Important: Run "make" to regenerate code after modifying
@@ -102,6 +109,10 @@ spec:
                 type: boolean
               inprogress:
                 type: boolean
+              outstandingnodes:
+                items:
+                  type: string
+                type: array
             type: object
         type: object
     served: true

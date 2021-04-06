@@ -38,8 +38,10 @@ type SosreportSpec struct {
 type SosreportStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	Finished   bool `json:"finished,omitempty"`
-	InProgress bool `json:"inprogress,omitempty"`
+	Finished              bool     `json:"finished,omitempty"`
+	InProgress            bool     `json:"inprogress,omitempty"`
+	CurrentlyRunningNodes []string `json:"currentlyrunningnodes,omitempty"`
+	OutstandingNodes      []string `json:"outstandingnodes,omitempty"`
 }
 
 // +k8s:openapi-gen=true
@@ -47,6 +49,7 @@ type SosreportStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Finished",type=boolean,JSONPath=`.status.finished`
 // +kubebuilder:printcolumn:name="In Progress",type=boolean,JSONPath=`.status.inprogress`
+// +kubebuilder:printcolumn:name="Currently Running Nodes",type=string,JSONPath=`.status.currentlyrunningnodes`
 
 // Sosreport is the Schema for the sosreports API
 type Sosreport struct {
