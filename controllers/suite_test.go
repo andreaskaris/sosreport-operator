@@ -23,6 +23,8 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	upstreamzap "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,7 +53,24 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
+
+	// start at the DebugLevel - this is a test env
+	logLevel := &SosreportLogLevel{
+		MinLevel: zapcore.DebugLevel,
+	}
+
+	// dynamically change loglevel by only printing if the level is higher than loglevel.Minlevel
+	var levelEnablerFunc = upstreamzap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return lvl >= logLevel.MinLevel
+	})
+
+	logf.SetLogger(
+		zap.New(
+			zap.UseDevMode(true),
+			zap.Level(levelEnablerFunc),
+			zap.WriteTo(GinkgoWriter),
+		),
+	)
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -78,9 +97,10 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&SosreportReconciler{
-		Client: k8sManager.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Sosreport"),
-		Scheme: k8sManager.GetScheme(),
+		Client:          k8sManager.GetClient(),
+		Log:             ctrl.Log.WithName("controllers").WithName("Sosreport"),
+		DynamicLogLevel: logLevel,
+		Scheme:          k8sManager.GetScheme(),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

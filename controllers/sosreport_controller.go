@@ -291,16 +291,24 @@ func (r *SosreportReconciler) setGlobalSosreportReconcilerConfiguration(s *suppo
 			pvcCapacity = pvcCapacityCm
 		}
 	}
+
 	log.V(DEBUG).Info("Setting loglevel to", "sosreportDebug", sosreportDebug)
+	// avoid nil pointer reference if this is not passed from the outside
+	if r.DynamicLogLevel == nil {
+		r.DynamicLogLevel = &SosreportLogLevel{}
+	}
 	if sosreportDebug {
 		r.DynamicLogLevel.MinLevel = zapcore.DebugLevel
 	} else {
 		r.DynamicLogLevel.MinLevel = zapcore.InfoLevel
 	}
+
 	log.V(DEBUG).Info("Using concurrency", "concurrency", sosreportConcurrency)
 	r.sosreportConcurrency = sosreportConcurrency
+
 	log.V(DEBUG).Info("PVC storage class", "pvcStorageClass", pvcStorageClass)
 	r.pvcStorageClass = pvcStorageClass
+
 	log.V(DEBUG).Info("PVC capacity", "pvcCapacity", pvcCapacity)
 	r.pvcCapacity = pvcCapacity
 }

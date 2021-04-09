@@ -253,7 +253,7 @@ var _ = Describe("Sosreport controller", func() {
 				}
 			}
 
-			By("Determining if a global ConfigMap already exists")
+			By("Determining if a development ConfigMap already exists")
 			cmg := &corev1.ConfigMap{}
 			namespacedNameCm := types.NamespacedName{Name: DEVELOPMENT_CONFIG_MAP_NAME, Namespace: SOSREPORT_NAMESPACE}
 			err = k8sClient.Get(ctx, namespacedNameCm, cmg)
@@ -276,6 +276,7 @@ var _ = Describe("Sosreport controller", func() {
 				cmg.Data["simulation-mode"] = "false"
 			}
 			cmg.Data["image-pull-policy"] = "Always"
+			cmg.Data["debug"] = "true"
 			if ok && statusError.Status().Reason == metav1.StatusReasonNotFound {
 				By("By creating a new global ConfigMap")
 				Expect(k8sClient.Create(ctx, cmg)).Should(Succeed())
