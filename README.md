@@ -120,6 +120,12 @@ make undeploy-examples
 
 > For testing, set `IMAGE_PULL_POLICY` to "Always"
 
+> For OpenShift make sure to set a privileged SCC:
+~~~
+oc new-project sosreport-test
+oc adm policy add-scc-to-user privileged -z default
+~~~
+
 ## Generating OLM bundle images
 
 ### For local registry

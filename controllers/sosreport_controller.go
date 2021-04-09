@@ -163,7 +163,7 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			return ctrl.Result{}, err
 		}
 		log.V(DEBUG).Info("Updating sosreport status", "sosreport.Status.InProgress", sosreport.Status.InProgress)
-		r.updateStatus(sosreport)
+		r.updateStatus(sosreport, req)
 	} else {
 		// synchronize job running cache - in case this sosreport controller was restarted
 		err := r.synchronizeJobRunningCache(sosreport, req)
@@ -189,8 +189,9 @@ func (r *SosreportReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			log.V(INFO).Info("Sosreport generation done")
 			sosreport.Status.InProgress = false
 			sosreport.Status.Finished = true
-			r.updateStatus(sosreport)
 		}
+
+		r.updateStatus(sosreport, req)
 	}
 
 	return ctrl.Result{}, nil
@@ -217,13 +218,8 @@ func (r *SosreportReconciler) synchronizeRunningStatus(s *supportv1alpha1.Sosrep
 		}
 	}
 
-	// to be changed
-	updateStatus := true
 	s.Status.CurrentlyRunningNodes = jobRunningList
 	s.Status.OutstandingNodes = jobToRunList
-	if updateStatus {
-		r.updateStatus(s)
-	}
 }
 
 /*
@@ -410,7 +406,8 @@ func (r *SosreportReconciler) getSosreportConfigMap(configMapName string, s *sup
 	nn := types.NamespacedName{Name: configMapName, Namespace: req.Namespace}
 	log.V(DEBUG).Info("Retrieving ConfigMap", "NamespacedName", nn)
 	if err := r.Get(ctx, nn, cm); err != nil {
-		log.V(INFO).Info("unable to get configuration configmap", "err", err)
+		// all of the ConfigMaps are optional, so this should not be logged for INFO
+		log.V(DEBUG).Info("unable to get configuration configmap", "err", err)
 		return nil, err
 	}
 	return cm, nil
@@ -433,22 +430,38 @@ func (r *SosreportReconciler) getSosreportSecret(s *supportv1alpha1.Sosreport, r
 /*
 Update the "Sosreport" CR
 */
-func (r *SosreportReconciler) update(s *supportv1alpha1.Sosreport) {
+func (r *SosreportReconciler) update(s *supportv1alpha1.Sosreport, req ctrl.Request) {
 	// update Sosreport resource
 	log.V(DEBUG).Info("Updating sosreport CR")
 	if err := r.Update(ctx, s); err != nil {
-		log.V(INFO).Info("unable to update Sosreport CR", "err", err)
+		log.V(DEBUG).Info("unable to update Sosreport CR", "err", err)
 	}
+	// after every update of a sosreport, get its new representation from the API
+	r.refreshSosreport(s, req)
 }
 
 /*
 Update the "Sosreport" CR's status
 */
-func (r *SosreportReconciler) updateStatus(s *supportv1alpha1.Sosreport) {
+func (r *SosreportReconciler) updateStatus(s *supportv1alpha1.Sosreport, req ctrl.Request) {
 	// update Sosreport resource status
 	log.V(DEBUG).Info("Updating sosreport resource status")
 	if err := r.Status().Update(ctx, s); err != nil {
-		log.V(INFO).Info("unable to update Sosreport status", "err", err)
+		log.V(DEBUG).Info("unable to update Sosreport status", "err", err)
+	}
+	// after every update of a sosreport, get its new representation from the API
+	r.refreshSosreport(s, req)
+}
+
+/*
+Refresh the "Sosreport" CR
+*/
+func (r *SosreportReconciler) refreshSosreport(s *supportv1alpha1.Sosreport, req ctrl.Request) {
+	sosreport := &supportv1alpha1.Sosreport{}
+	if err := r.Get(ctx, req.NamespacedName, sosreport); err == nil {
+		s = sosreport
+	} else {
+		log.V(INFO).Info("Unable to refresh the Sosreport CR", "err", err)
 	}
 }
 
@@ -520,7 +533,7 @@ func (r *SosreportReconciler) dequeueSosreportJobsDone(s *supportv1alpha1.Sosrep
 		}
 		if s.Annotations["job-running-list"] != string(j) {
 			s.Annotations["job-running-list"] = string(j)
-			r.update(s)
+			r.update(s, req)
 		}
 	}
 
@@ -626,7 +639,7 @@ func (r *SosreportReconciler) scheduleSosreportJobs(s *supportv1alpha1.Sosreport
 			s.Annotations = make(map[string]string)
 		}
 		s.Annotations["job-to-run-list"] = string(j)
-		r.update(s)
+		r.update(s, req)
 	}
 
 	return true, nil
@@ -658,11 +671,11 @@ func (r *SosreportReconciler) synchronizeJobRunningCache(s *supportv1alpha1.Sosr
 	if _, inRunList := r.jobToRunList[s.UID]; !inRunList {
 		log.V(DEBUG).Info("Current jobToRunList for this job does not exist. Trying to load jobToRunList from s.Annotations[\"job-to-run-list\"]")
 		if annotationJson, annotationExists := s.Annotations["job-to-run-list"]; annotationExists {
-			log.V(INFO).Info("Annotation exists. Updating r.jobToRunList[s.UID]")
+			log.V(DEBUG).Info("Annotation exists. Updating r.jobToRunList[s.UID]")
 			annotationData := make(map[string]struct{})
 			if err := json.Unmarshal([]byte(annotationJson), &annotationData); err == nil {
 				r.jobToRunList[s.UID] = annotationData
-				log.V(INFO).Info("Value is", "r.jobToRunList[s.UID]", r.jobToRunList[s.UID])
+				log.V(DEBUG).Info("Value is", "r.jobToRunList[s.UID]", r.jobToRunList[s.UID])
 			} else {
 				log.Error(err, "Failed to unmarshal annotation", "s.Annotations[\"job-to-run-list\"]", annotationJson)
 				return err
@@ -674,11 +687,11 @@ func (r *SosreportReconciler) synchronizeJobRunningCache(s *supportv1alpha1.Sosr
 	if _, inRunList := r.jobRunningList[s.UID]; !inRunList {
 		log.V(DEBUG).Info("Current jobRunningList for this job does not exist. Trying to load jobRunningList from s.Annotations[\"job-running-list\"]")
 		if annotationJson, annotationExists := s.Annotations["job-running-list"]; annotationExists {
-			log.V(INFO).Info("Annotation exists. Updating r.jobRunningList[s.UID]")
+			log.V(DEBUG).Info("Annotation exists. Updating r.jobRunningList[s.UID]")
 			annotationData := make(map[string]struct{})
 			if err := json.Unmarshal([]byte(annotationJson), &annotationData); err == nil {
 				r.jobRunningList[s.UID] = annotationData
-				log.V(INFO).Info("Value is", "r.jobRunningList[s.UID]", r.jobRunningList[s.UID])
+				log.V(DEBUG).Info("Value is", "r.jobRunningList[s.UID]", r.jobRunningList[s.UID])
 			} else {
 				log.Error(err, "Failed to unmarshal annotation", "s.Annotations[\"job-running-list\"]", annotationJson)
 				return err
@@ -764,7 +777,7 @@ func (r *SosreportReconciler) runSosreportJobs(s *supportv1alpha1.Sosreport, req
 		}
 	}
 	if doUpdate {
-		r.update(s)
+		r.update(s, req)
 	}
 
 	return true, nil
