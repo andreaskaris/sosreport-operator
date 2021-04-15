@@ -1,6 +1,8 @@
 # Sosreport Operator - Developer's Guide
 
-This guide contains building and installation instructions. See [USERGUIDE.md](USERGUIDE.md) for the user guide.
+This guide contains building and installation instructions for developers of this operator. 
+
+See [USERGUIDE.md](USERGUIDE.md) for the user guide and user installation instructions.
 
 ## OperatorSDK dependency
 
