@@ -9,7 +9,7 @@ metadata:
 spec:
   template:
     spec:
-      hostIPD: true
+      hostIPC: true
       hostNetwork: true
       hostPID: true
       restartPolicy: Never

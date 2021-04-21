@@ -20,7 +20,7 @@ spec:
       labels:
         app: sosreport-deployment
     spec:
-      hostIPD: true
+      hostIPC: true
       hostNetwork: true
       hostPID: true
       containers:
